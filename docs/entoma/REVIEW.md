@@ -46,8 +46,14 @@ is retained on API or configuration failures.
   direct network timeouts. It did not enable Entoma system proxy or TUN.
 - Real core: 4 SS subscription nodes parsed/validated; authenticated Entoma IPC,
   start, node selection, positive delay, TLS HTTPS forwarding and positive traffic;
+  the active HTTPS connection chain contains the selected SS node and group and
+  excludes DIRECT. The probe forces one MATCH route and uses the existing GUI's
+  YAML `rules` to JSON `rule` conversion; this does not change client routing.
   malformed update rejected with forwarding preserved; disconnect released listener.
   Status/count/hash-only evidence is in `evidence/stg-core-smoke.json`.
+  Earlier probe records used the YAML field directly on the JSON seam and proved
+  DIRECT forwarding only. They do not count as node acceptance; the corrected
+  probe and selected-node chain assertion supersede those records.
 - macOS GUI: real login, subscription nodes and measured delays, native dashboard,
   connection, HTTP 200/TLS verification through the owned mixed listener, then
   stop and listener release. A later rebuilt ad-hoc bundle's Keychain restore was

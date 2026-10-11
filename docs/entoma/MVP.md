@@ -91,6 +91,10 @@ counts and hashes. Passing a core path verifies the actual Entoma IPC core, conf
 loading, selection, delay, real HTTPS proxy traffic, LKG after malformed input and
 listener release. It never changes system proxy or enables TUN. Subscription bytes
 stay in process memory; temporary geodata/IPC directories are removed afterward.
+The node probe uses a MATCH rule to the selected group and converts YAML `rules`
+to the embedded core's singular JSON `rule` field, as the GUI already does. It
+requires the HTTPS connection chain to contain the selected node and group and
+exclude DIRECT; HTTP 200 alone cannot pass the node-forwarding assertion.
 The optional numeric `loopbackProxyPort` stdin field uses an already running local
 proxy for the probe's API HTTPS transport only; it changes no system setting and
 does not implement client control-channel failover. Evidence records this choice.

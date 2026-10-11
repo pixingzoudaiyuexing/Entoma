@@ -73,11 +73,13 @@ Future<void> main(List<String> arguments) async {
     evidence['accountActive'] = me['status'] == 'active';
     for (final resource in [
       'wallet',
+      'config/account',
       'subscription/overview',
       'products',
       'orders',
       'billing/methods',
       'tickets',
+      'notices',
       'referrals'
     ]) {
       try {
@@ -187,6 +189,12 @@ Future<void> main(List<String> arguments) async {
     final mainGroup = objects(config['proxy-groups'])
         .firstWhere((g) => g['type'] == 'select');
     final firstNode = string(objects(config['proxies']).first['name']);
+    // The embedded RawConfig's wire DTO uses singular `rule`; the GUI makes
+    // the same YAML-to-JSON conversion in GlobalState.patchRawConfig.
+    config.remove('rules');
+    config['mode'] = 'rule';
+    config['rule'] = ['MATCH,${mainGroup['name']}'];
+    evidence['nodeRoutingForcedInProbe'] = true;
     final params = {
       'config': config,
       'selected-map': {string(mainGroup['name']): firstNode},
@@ -231,6 +239,21 @@ Future<void> main(List<String> arguments) async {
     }
 
     evidence['nativeCoreHttpsForwarding'] = await transfer();
+    final connections =
+        object(jsonDecode(await invoke('getConnections', '') as String));
+    evidence['httpsStreamThroughSelectedNode'] =
+        objects(connections['connections']).any((stream) {
+      final metadata = object(stream['metadata']);
+      final chains = stream['chains'];
+      return metadata['host'] == 'www.cloudflare.com' &&
+          chains is List &&
+          chains.contains(firstNode) &&
+          chains.contains(mainGroup['name']) &&
+          !chains.contains('DIRECT');
+    });
+    if (evidence['httpsStreamThroughSelectedNode'] != true) {
+      throw StateError('Selected node forwarding was not verified');
+    }
     final totals =
         object(jsonDecode(await invoke('getTotalTraffic', '') as String));
     evidence['nativeCoreTrafficPositive'] =

@@ -96,7 +96,7 @@ void main() {
         }
         return accountResponse(r);
       });
-      expect(find.text('应付 123.45'), findsOneWidget);
+      expect(find.text('应付 ¥123.45'), findsOneWidget);
       await choosePayment(tester);
       await tester.pumpAndSettle();
       expect(find.text('待付款'), findsOneWidget);

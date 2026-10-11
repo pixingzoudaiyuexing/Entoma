@@ -1,5 +1,8 @@
 {
-  "capturedAt": "2026-10-11T17:29:21.415Z",
+  "capturedAt": "2026-10-11T18:33:44.458Z",
+  "applicationBuildSha": "20c279f1538859bb69f9de95d415c7ac8395ae2f",
+  "coreSha256": "f38a95118b7c76b29313cf077928707915eff185b8a95688ee1281bab2dde7eb",
+  "exitCode": 0,
   "evidence": {
     "apiTransport": "existing-loopback-proxy",
     "login": true,
@@ -7,6 +10,9 @@
     "wallet": {
       "ok": true,
       "balanceZero": false
+    },
+    "config/account": {
+      "ok": true
     },
     "subscription/overview": {
       "ok": true
@@ -26,20 +32,25 @@
     "tickets": {
       "ok": true
     },
+    "notices": {
+      "ok": true
+    },
     "referrals": {
       "ok": true
     },
     "subscription": {
-      "bytes": 23733,
+      "bytes": 23739,
       "nodes": 4,
-      "preparedSha256": "b3f42b5984a4aeb7b5fb1eb1cab5c5557fa0a39b96cd4714fc0b5a57f952e2b7"
+      "preparedSha256": "e286d02427ca694b6edc2c640de93766be28a99205a342f6d0b8e04cdca9684c"
     },
     "nativeCoreAuthenticated": true,
     "nativeCoreConfigValidation": true,
+    "nodeRoutingForcedInProbe": true,
     "nativeCoreStarted": true,
     "nodeSelected": true,
     "latencyMeasured": true,
     "nativeCoreHttpsForwarding": true,
+    "httpsStreamThroughSelectedNode": true,
     "nativeCoreTrafficPositive": true,
     "malformedUpdateRejected": true,
     "forwardingSurvivesMalformedUpdate": true,

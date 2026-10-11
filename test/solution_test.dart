@@ -32,6 +32,7 @@ class MemoryVault implements SessionVault {
 http.Response success(Object? data) => http.Response(
       jsonEncode({'ok': true, 'data': data, 'requestId': 'fixture'}),
       200,
+      headers: {'content-type': 'application/json; charset=utf-8'},
     );
 http.Response failure(String code, int status) => http.Response(
       jsonEncode({
