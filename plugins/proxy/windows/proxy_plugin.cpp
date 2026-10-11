@@ -59,7 +59,9 @@ bool readProxy(ProxySnapshot& value) {
   return ok;
 }
 
-bool writeProxy(const ProxySnapshot& value) {
+enum class WriteResult { Failed, NeedsRefresh, Success };
+
+WriteResult writeProxy(const ProxySnapshot& value) {
   INTERNET_PER_CONN_OPTIONW options[4]{};
   options[0].dwOption = INTERNET_PER_CONN_FLAGS;
   options[0].Value.dwValue = value.flags;
@@ -73,9 +75,9 @@ bool writeProxy(const ProxySnapshot& value) {
   list.dwSize = sizeof(list);
   list.dwOptionCount = 4;
   list.pOptions = options;
-  if (!InternetSetOptionW(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, sizeof(list))) return false;
+  if (!InternetSetOptionW(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, sizeof(list))) return WriteResult::Failed;
   return InternetSetOptionW(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0) &&
-      InternetSetOptionW(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0);
+      InternetSetOptionW(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0) ? WriteResult::Success : WriteResult::NeedsRefresh;
 }
 
 std::wstring wide(const std::string& value) {
@@ -93,7 +95,8 @@ bool startProxy(const int port, const flutter::EncodableList& bypassDomain) {
   ProxySnapshot current;
   if (!readProxy(current)) return false;
   if (applied && !(current == *applied)) return false;
-  if (!original) original = current;
+  const bool firstOwnership = !original.has_value();
+  if (firstOwnership) original = current;
   ProxySnapshot next = current;
   next.flags = PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY;
   next.server = L"127.0.0.1:" + std::to_wstring(port);
@@ -104,9 +107,18 @@ bool startProxy(const int port, const flutter::EncodableList& bypassDomain) {
     if (!next.bypass.empty()) next.bypass += L";";
     next.bypass += wide(*text);
   }
-  if (!writeProxy(next)) {
-    if (writeProxy(current)) { original.reset(); applied.reset(); }
-    else { ProxySnapshot actual; if (readProxy(actual)) applied = actual; }
+  const auto result = writeProxy(next);
+  if (result != WriteResult::Success) {
+    const auto rollback = writeProxy(current);
+    if (rollback == WriteResult::Success) {
+      if (firstOwnership) { original.reset(); applied.reset(); }
+      else applied = current;
+      restorationPending = false;
+    } else {
+      ProxySnapshot actual;
+      if (readProxy(actual)) applied = actual;
+      restorationPending = false;
+    }
     return false;
   }
   applied = next;
@@ -121,8 +133,11 @@ bool stopProxy() {
   if (expected && !(current == *expected)) {
     original.reset(); applied.reset(); restorationPending = false; return true;
   }
-  restorationPending = true;
-  if (!writeProxy(*original)) return false;
+  if (!applied && !restorationPending) return false;
+  const auto restored = writeProxy(*original);
+  if (restored == WriteResult::Failed) return false;
+  restorationPending = restored == WriteResult::NeedsRefresh;
+  if (restorationPending) return false;
   original.reset(); applied.reset(); restorationPending = false; return true;
 }
 

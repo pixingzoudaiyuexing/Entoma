@@ -9,6 +9,7 @@ case "$ENTOMA_PLATFORM" in
     (cd core && GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags='-w -s' -tags=with_gvisor -o ../libclash/macos/FlClashCore-arm64 .)
     (cd core && GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags='-w -s' -tags=with_gvisor -o ../libclash/macos/FlClashCore-amd64 .)
     lipo -create libclash/macos/FlClashCore-arm64 libclash/macos/FlClashCore-amd64 -output libclash/macos/FlClashCore
+    codesign --force --sign - libclash/macos/FlClashCore
     ENTOMA_CORE=libclash/macos/FlClashCore
     ;;
   windows)
@@ -30,3 +31,8 @@ case "$ENTOMA_PLATFORM" in
   windows) flutter build windows --release --no-pub --dart-define="APP_ENV=stable" --dart-define="CORE_SHA256=$ENTOMA_CORE_HASH" --dart-define="SOLUTION_ORIGIN=$ENTOMA_API_ORIGIN" ;;
   android) flutter build apk --release --target-platform android-arm64 --no-pub --dart-define="SOLUTION_ORIGIN=$ENTOMA_API_ORIGIN" ;;
 esac
+
+if [[ "$ENTOMA_PLATFORM" == macos ]]; then
+  ENTOMA_PACKAGED_HASH="$(dart run tool/hash.dart build/macos/Build/Products/Release/Entoma.app/Contents/MacOS/FlClashCore)"
+  [[ "$ENTOMA_PACKAGED_HASH" == "$ENTOMA_CORE_HASH" ]] || { printf '%s\n' 'Packaged core integrity mismatch' >&2; exit 1; }
+fi

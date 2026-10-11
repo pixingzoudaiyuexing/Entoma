@@ -54,6 +54,22 @@ class ReadFailureVault extends MemoryVault {
   }
 }
 
+class CompletionRaceVault extends MemoryVault {
+  int calls = 0;
+  Completer<void>? block;
+  final started = Completer<void>();
+  @override
+  Future<void> writeJournal(String next) async {
+    calls++;
+    if (calls == 2 && block != null) {
+      started.complete();
+      await block!.future;
+      throw StateError('lost completion write');
+    }
+    await super.writeJournal(next);
+  }
+}
+
 void main() {
   test('logout while pre-send storage is blocked prevents the old POST',
       () async {
@@ -130,6 +146,29 @@ void main() {
     vault.failRead = false;
     await session.authenticate('fixture@example.com', 'fixture-password');
     expect(session.pendingMutations, contains('order:create'));
+  });
+
+  test('logout interleaved with failing completion keeps the unknown operation',
+      () async {
+    final vault = CompletionRaceVault();
+    final session = SolutionSession(
+        SolutionApi(client: MockClient((r) async => accountResponse(r))),
+        vault);
+    await session.authenticate('fixture@example.com', 'fixture-password');
+    vault.calls = 0;
+    vault.block = Completer<void>();
+    final mutation = session.mutate('checkout:fixture', (_) async => true);
+    final assertion = expectLater(mutation, throwsA(isA<SolutionError>()));
+    await vault.started.future;
+    final logout = session.clear();
+    await expectLater(
+        session.authenticate('fixture@example.com', 'fixture-password'),
+        throwsA(isA<SolutionError>()));
+    vault.block!.complete();
+    await assertion;
+    await logout;
+    await session.authenticate('fixture@example.com', 'fixture-password');
+    expect(session.pendingMutations, contains('checkout:fixture'));
   });
 
   test('mutation context cannot send with a newer account token', () async {

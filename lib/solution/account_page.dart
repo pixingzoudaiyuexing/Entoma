@@ -226,8 +226,9 @@ class _AccountPageState extends ConsumerState<SolutionAccountPage> {
             ),
           ],
           FilledButton(
-            onPressed:
-                working || !session.initialized ? null : () => act(submit),
+            onPressed: working || session.busy || !session.initialized
+                ? null
+                : () => act(submit),
             child: Text(
               working
                   ? '请稍候…'

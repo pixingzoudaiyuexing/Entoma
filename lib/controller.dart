@@ -267,13 +267,14 @@ class AppController {
   }
 
   Future<void> _updateClashConfig() async {
-    final updateParams = _ref.read(updateParamsProvider);
-    final res = await _requestAdmin(updateParams.tun.enable);
+    final res =
+        await _requestAdmin(_ref.read(patchClashConfigProvider).tun.enable);
     if (res.isError) {
       return;
     }
     return _configure(() async {
       final candidate = _ref.read(patchClashConfigProvider);
+      final updateParams = _ref.read(updateParamsProvider);
       final realTunEnable = _ref.read(realTunEnableProvider);
       final message = await clashCore.updateConfig(
         updateParams.copyWith.tun(
