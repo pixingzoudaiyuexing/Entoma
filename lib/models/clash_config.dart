@@ -11,7 +11,7 @@ typedef HostsMap = Map<String, String>;
 
 const defaultClashConfig = ClashConfig();
 
-const defaultTun = Tun(enable: true);
+const defaultTun = Tun(enable: false);
 const defaultDns = Dns();
 const defaultGeoXUrl = GeoXUrl();
 

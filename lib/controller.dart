@@ -24,6 +24,7 @@ import 'views/profiles/override_profile.dart';
 class AppController {
   int? lastProfileModified;
   ClashConfig? _acceptedConfig;
+  bool _connecting = false;
   Future<void> _configurationQueue = Future.value();
   Future<T> _configure<T>(Future<T> Function() action) {
     final operation =
@@ -99,8 +100,13 @@ class AppController {
       final selected = _ref.read(currentProfileProvider);
       if (selected == null || !await selected.check())
         throw StateError('请先刷新订阅或添加有效配置');
-      await applyProfile(silence: true);
-      await globalState.handleStart([updateRunTime, updateTraffic]);
+      _connecting = true;
+      try {
+        await applyProfile(silence: true);
+        await globalState.handleStart([updateRunTime, updateTraffic]);
+      } finally {
+        _connecting = false;
+      }
       addCheckIpNumDebounce();
     } else {
       await globalState.handleStop();
@@ -299,6 +305,9 @@ class AppController {
 
   Future<Result<bool>> _requestAdmin(bool enableTun) async {
     final realTunEnable = _ref.read(realTunEnableProvider);
+    if (enableTun && !globalState.isStart && !_connecting) {
+      return Result.success(false);
+    }
     if (enableTun != realTunEnable && realTunEnable == false) {
       final code = await system.authorizeCore();
       switch (code) {

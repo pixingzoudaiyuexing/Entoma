@@ -15,13 +15,21 @@ abstract class SessionVault {
   Future<void> writeJournal(String value);
 }
 
+// flutter_secure_storage_darwin 0.2.0 reads this legacy wire spelling.
+// Its Dart option uses a different spelling, so explicitly send both.
+class EntomaMacVaultOptions extends MacOsOptions {
+  const EntomaMacVaultOptions() : super(usesDataProtectionKeychain: false);
+  @override
+  Map<String, String> toMap() =>
+      {...super.toMap(), 'useDataProtectionKeyChain': 'false'};
+}
+
 class NativeSessionVault implements SessionVault {
   final FlutterSecureStorage storage;
   final String key;
   NativeSessionVault(String origin, {FlutterSecureStorage? storage})
       : storage = storage ??
-            const FlutterSecureStorage(
-                mOptions: MacOsOptions(usesDataProtectionKeychain: false)),
+            const FlutterSecureStorage(mOptions: EntomaMacVaultOptions()),
         key = 'entoma.session.v1.$origin';
   @override
   Future<String?> read() => storage.read(key: key);

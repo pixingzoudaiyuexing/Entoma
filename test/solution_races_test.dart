@@ -71,6 +71,13 @@ class CompletionRaceVault extends MemoryVault {
 }
 
 void main() {
+  test(
+      'native macOS vault disables the data protection keychain on the actual plugin wire',
+      () {
+    final options = const EntomaMacVaultOptions().toMap();
+    expect(options['usesDataProtectionKeychain'], 'false');
+    expect(options['useDataProtectionKeyChain'], 'false');
+  });
   test('logout while pre-send storage is blocked prevents the old POST',
       () async {
     final vault = BlockingVault();
