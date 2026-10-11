@@ -91,7 +91,7 @@ std::wstring wide(const std::string& value) {
 }
 
 bool startProxy(const int port, const flutter::EncodableList& bypassDomain) {
-  if (restorationPending || port < 1024 || port > 65535) return false;
+  if (restorationPending || (original && !applied) || port < 1024 || port > 65535) return false;
   ProxySnapshot current;
   if (!readProxy(current)) return false;
   if (applied && !(current == *applied)) return false;
