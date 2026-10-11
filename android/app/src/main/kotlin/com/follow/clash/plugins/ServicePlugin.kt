@@ -25,8 +25,9 @@ data object ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         "startVpn" -> {
             val data = call.argument<String>("data")
             val options = Gson().fromJson(data, VpnOptions::class.java)
-            GlobalState.getCurrentVPNPlugin()?.handleStart(options)
-            result.success(true)
+            val plugin = GlobalState.getCurrentVPNPlugin()
+            if (plugin == null) result.success(false)
+            else plugin.handleStart(options) { started -> result.success(started) }
         }
 
         "stopVpn" -> {

@@ -104,12 +104,12 @@ func sideUpdateExternalProvider(p cp.Provider, bytes []byte) error {
 	}
 }
 
-func updateListeners() {
+func updateListeners() error {
 	if !isRunning {
-		return
+		return nil
 	}
 	if currentConfig == nil {
-		return
+		return nil
 	}
 	listeners := currentConfig.Listeners
 	general := currentConfig.General
@@ -123,13 +123,18 @@ func updateListeners() {
 	listener.ReCreateSocks(general.SocksPort, tunnel.Tunnel)
 	listener.ReCreateRedir(general.RedirPort, tunnel.Tunnel)
 	listener.ReCreateTProxy(general.TProxyPort, tunnel.Tunnel)
-	listener.ReCreateMixed(general.MixedPort, tunnel.Tunnel)
+	if err := listener.ReCreateMixed(general.MixedPort, tunnel.Tunnel); err != nil {
+		return err
+	}
 	listener.ReCreateShadowSocks(general.ShadowSocksConfig, tunnel.Tunnel)
 	listener.ReCreateVmess(general.VmessConfig, tunnel.Tunnel)
 	listener.ReCreateTuic(general.TuicServer, tunnel.Tunnel)
 	if !features.Android {
-		listener.ReCreateTun(general.Tun, tunnel.Tunnel)
+		if err := listener.ReCreateTun(general.Tun, tunnel.Tunnel); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func stopListeners() {
@@ -177,7 +182,7 @@ func readFile(path string) ([]byte, error) {
 	return data, err
 }
 
-func updateConfig(params *UpdateParams) {
+func updateConfig(params *UpdateParams) error {
 	runLock.Lock()
 	defer runLock.Unlock()
 	general := currentConfig.General
@@ -219,7 +224,8 @@ func updateConfig(params *UpdateParams) {
 	if params.ExternalController != nil {
 		currentConfig.Controller.ExternalController = *params.ExternalController
 		route.ReCreateServer(&route.Config{
-			Addr: currentConfig.Controller.ExternalController,
+			Addr:   currentConfig.Controller.ExternalController,
+			Secret: currentConfig.Controller.Secret,
 		})
 	}
 
@@ -232,22 +238,30 @@ func updateConfig(params *UpdateParams) {
 		general.Tun.Stack = *params.Tun.Stack
 	}
 
-	updateListeners()
+	return updateListeners()
 }
 
 func setupConfig(params *SetupParams) error {
 	runLock.Lock()
 	defer runLock.Unlock()
-	var err error
-	constant.DefaultTestURL = params.TestURL
-	currentConfig, err = config.ParseRawConfig(params.Config)
+	candidate, err := config.ParseRawConfig(params.Config)
 	if err != nil {
-		currentConfig, _ = config.ParseRawConfig(config.DefaultRawConfig())
+		return err
 	}
+	constant.DefaultTestURL = params.TestURL
+	previous := currentConfig
+	currentConfig = candidate
 	hub.ApplyConfig(currentConfig)
 	patchSelectGroup(params.SelectedMap)
-	updateListeners()
-	return err
+	if err := updateListeners(); err != nil {
+		if previous != nil {
+			currentConfig = previous
+			hub.ApplyConfig(previous)
+			_ = updateListeners()
+		}
+		return err
+	}
+	return nil
 }
 
 func UnmarshalJson(data []byte, v any) error {

@@ -85,6 +85,9 @@ class AppController {
 
   updateStatus(bool isStart) async {
     if (isStart) {
+      final selected = _ref.read(currentProfileProvider);
+      if (selected == null || !await selected.check())
+        throw StateError('请先刷新订阅或添加有效配置');
       await globalState.handleStart([
         updateRunTime,
         updateTraffic,
@@ -667,13 +670,15 @@ class AppController {
     try {
       // 先删除所有现有的URL订阅（非文件类型的订阅）
       final profiles = globalState.config.profiles;
-      final urlProfiles = profiles.where((profile) => profile.type == ProfileType.url).toList();
-      
+      final urlProfiles =
+          profiles.where((profile) => profile.type == ProfileType.url).toList();
+
       for (final profile in urlProfiles) {
-        commonPrint.log('Removing existing URL profile: ${profile.label ?? profile.id}');
+        commonPrint.log(
+            'Removing existing URL profile: ${profile.label ?? profile.id}');
         deleteProfile(profile.id);
       }
-      
+
       // 然后添加新的订阅
       final profile = await Profile.normal(
         url: url,

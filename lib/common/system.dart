@@ -11,6 +11,8 @@ import 'package:flutter/services.dart';
 class System {
   static System? _instance;
   List<String>? originDns;
+  bool elevatedCoreRequested = false;
+  bool elevatedCoreActive = false;
 
   System._internal();
 
@@ -28,22 +30,14 @@ class System {
       "macos" => (deviceInfo as MacOsDeviceInfo).majorVersion,
       "android" => (deviceInfo as AndroidDeviceInfo).version.sdkInt,
       "windows" => (deviceInfo as WindowsDeviceInfo).majorVersion,
-      String() => 0
+      String() => 0,
     };
   }
 
   Future<bool> checkIsAdmin() async {
-    final corePath = appPath.corePath.replaceAll(' ', '\\\\ ');
-    if (Platform.isWindows) {
-      final result = await windows?.checkService();
-      return result == WindowsHelperServiceStatus.running;
-    } else if (Platform.isMacOS) {
-      final result = await Process.run('stat', ['-f', '%Su:%Sg %Sp', corePath]);
-      final output = result.stdout.trim();
-      if (output.startsWith('root:admin') && output.contains('rws')) {
-        return true;
-      }
-      return false;
+    final corePath = appPath.corePath;
+    if (Platform.isWindows || Platform.isMacOS) {
+      return elevatedCoreActive;
     } else if (Platform.isLinux) {
       final result = await Process.run('stat', ['-c', '%U:%G %A', corePath]);
       final output = result.stdout.trim();
@@ -59,30 +53,10 @@ class System {
     if (Platform.isAndroid) {
       return AuthorizeCode.error;
     }
-    final corePath = appPath.corePath.replaceAll(' ', '\\\\ ');
-    final isAdmin = await checkIsAdmin();
-    if (isAdmin) {
-      return AuthorizeCode.none;
-    }
-
-    if (Platform.isWindows) {
-      final result = await windows?.registerService();
-      if (result == true) {
-        return AuthorizeCode.success;
-      }
-      return AuthorizeCode.error;
-    }
-
-    if (Platform.isMacOS) {
-      final shell = 'chown root:admin $corePath; chmod +sx $corePath';
-      final arguments = [
-        "-e",
-        'do shell script "$shell" with administrator privileges',
-      ];
-      final result = await Process.run("osascript", arguments);
-      if (result.exitCode != 0) {
-        return AuthorizeCode.error;
-      }
+    final corePath = appPath.corePath;
+    if (Platform.isWindows || Platform.isMacOS) {
+      if (elevatedCoreActive) return AuthorizeCode.none;
+      elevatedCoreRequested = true;
       return AuthorizeCode.success;
     } else if (Platform.isLinux) {
       final shell = Platform.environment['SHELL'] ?? 'bash';
@@ -94,7 +68,7 @@ class System {
       );
       final arguments = [
         "-c",
-        'echo "$password" | sudo -S chown root:root "$corePath" && echo "$password" | sudo -S chmod +sx "$corePath"'
+        'echo "$password" | sudo -S chown root:root "$corePath" && echo "$password" | sudo -S chmod +sx "$corePath"',
       ];
       final result = await Process.run(shell, arguments);
       if (result.exitCode != 0) {
@@ -119,23 +93,25 @@ class System {
       return null;
     }
     final device = lineSplits[1];
-    final serviceResult = await Process.run(
-      'networksetup',
-      ['-listnetworkserviceorder'],
-    );
+    final serviceResult = await Process.run('networksetup', [
+      '-listnetworkserviceorder',
+    ]);
     final serviceResultOutput = serviceResult.stdout.toString();
-    final currentService = serviceResultOutput.split('\n\n').firstWhere(
-          (s) => s.contains("Device: $device"),
-          orElse: () => "",
-        );
+    final currentService = serviceResultOutput
+        .split('\n\n')
+        .firstWhere((s) => s.contains("Device: $device"), orElse: () => "");
     if (currentService.isEmpty) {
       return null;
     }
-    final currentServiceNameLine = currentService.split("\n").firstWhere(
-        (line) => RegExp(r'^\(\d+\).*').hasMatch(line),
-        orElse: () => "");
-    final currentServiceNameLineSplits =
-        currentServiceNameLine.trim().split(' ');
+    final currentServiceNameLine = currentService
+        .split("\n")
+        .firstWhere(
+          (line) => RegExp(r'^\(\d+\).*').hasMatch(line),
+          orElse: () => "",
+        );
+    final currentServiceNameLineSplits = currentServiceNameLine.trim().split(
+      ' ',
+    );
     if (currentServiceNameLineSplits.length < 2) {
       return null;
     }
@@ -150,10 +126,10 @@ class System {
     if (deviceServiceName == null) {
       return null;
     }
-    final result = await Process.run(
-      'networksetup',
-      ['-getdnsservers', deviceServiceName],
-    );
+    final result = await Process.run('networksetup', [
+      '-getdnsservers',
+      deviceServiceName,
+    ]);
     final output = result.stdout.toString().trim();
     if (output.startsWith("There aren't any DNS Servers set on")) {
       originDns = [];
@@ -188,15 +164,12 @@ class System {
     if (nextDns == null) {
       return;
     }
-    await Process.run(
-      'networksetup',
-      [
-        '-setdnsservers',
-        serviceName,
-        if (nextDns.isNotEmpty) ...nextDns,
-        if (nextDns.isEmpty) "Empty",
-      ],
-    );
+    await Process.run('networksetup', [
+      '-setdnsservers',
+      serviceName,
+      if (nextDns.isNotEmpty) ...nextDns,
+      if (nextDns.isEmpty) "Empty",
+    ]);
   }
 
   back() async {

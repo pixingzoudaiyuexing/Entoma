@@ -17,18 +17,20 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
     <application
-        android:name=".FlClashApplication"
+        android:name="com.follow.clash.FlClashApplication"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:banner="@mipmap/ic_banner"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="Flclash">
+        android:label="Entoma">
         <activity
             android:name="com.follow.clash.MainActivity"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
@@ -72,8 +74,8 @@
             android:value="false" />
 
         <activity
-            android:name=".TempActivity"
-            android:exported="true"
+            android:name="com.follow.clash.TempActivity"
+            android:exported="false"
             android:theme="@style/TransparentTheme">
             <intent-filter>
                 <category android:name="android.intent.category.DEFAULT" />
@@ -90,10 +92,10 @@
         </activity>
 
         <service
-            android:name=".services.FlClashTileService"
+            android:name="com.follow.clash.services.FlClashTileService"
             android:exported="true"
             android:icon="@drawable/ic"
-            android:label="Flclash"
+            android:label="Entoma"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             tools:targetApi="n">
             <intent-filter>
@@ -105,7 +107,7 @@
         </service>
 
         <provider
-            android:name=".FilesProvider"
+            android:name="com.follow.clash.FilesProvider"
             android:authorities="${applicationId}.files"
             android:exported="true"
             android:grantUriPermissions="true"
@@ -127,9 +129,9 @@
         </provider>
 
         <service
-            android:name=".services.FlClashVpnService"
+            android:name="com.follow.clash.services.FlClashVpnService"
             android:exported="false"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="specialUse"
             android:permission="android.permission.BIND_VPN_SERVICE">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
@@ -140,9 +142,9 @@
         </service>
 
         <service
-            android:name=".services.FlClashService"
+            android:name="com.follow.clash.services.FlClashService"
             android:exported="false"
-            android:foregroundServiceType="dataSync">
+            android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="service" />

@@ -50,8 +50,15 @@ func handleInitClash(paramsString string) bool {
 func handleStartListener() bool {
 	runLock.Lock()
 	defer runLock.Unlock()
+	if currentConfig == nil {
+		return false
+	}
 	isRunning = true
-	updateListeners()
+	if err := updateListeners(); err != nil {
+		isRunning = false
+		listener.StopListener()
+		return false
+	}
 	resolver.ResetConnection()
 	return true
 }
@@ -84,8 +91,11 @@ func handleShutdown() bool {
 }
 
 func handleValidateConfig(bytes []byte) string {
-	_, err := config.UnmarshalRawConfig(bytes)
+	raw, err := config.UnmarshalRawConfig(bytes)
 	if err != nil {
+		return err.Error()
+	}
+	if _, err = config.ParseRawConfig(raw); err != nil {
 		return err.Error()
 	}
 	return ""
@@ -446,7 +456,9 @@ func handleUpdateConfig(bytes []byte) string {
 	if err != nil {
 		return err.Error()
 	}
-	updateConfig(params)
+	if err := updateConfig(params); err != nil {
+		return err.Error()
+	}
 	return ""
 }
 
@@ -455,7 +467,6 @@ func handleSetupConfig(bytes []byte) string {
 	err := UnmarshalJson(bytes, params)
 	if err != nil {
 		log.Errorln("unmarshalRawConfig error %v", err)
-		_ = setupConfig(defaultSetupParams())
 		return err.Error()
 	}
 	err = setupConfig(params)

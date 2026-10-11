@@ -1,1 +1,9 @@
 include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - plugins/flutter_distributor/**
+    - lib/sdk/flutter_xboard_sdk/**
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - lib/clash/generated/**

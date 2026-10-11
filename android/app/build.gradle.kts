@@ -24,8 +24,8 @@ val isRelease = mStoreFile.exists()
 
 android {
     namespace = "com.follow.clash"
-    compileSdk = 35
-    ndkVersion = "28.0.13004108"
+    compileSdk = 36
+    ndkVersion = "29.0.14206865"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -37,8 +37,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.follow.clash"
-        minSdk = flutter.minSdkVersion
+        applicationId = "com.entoma.client"
+        minSdk = maxOf(23, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -65,8 +65,8 @@ android {
             isMinifyEnabled = true
             isDebuggable = false
 
-            // 强制使用 debug 签名，不使用 release 签名
-            signingConfig = signingConfigs.getByName("debug")
+            // Local MVP packages use test signing only when no release key is supplied.
+            signingConfig = signingConfigs.getByName(if (isRelease) "release" else "debug")
 
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

@@ -53,9 +53,9 @@ class Windows {
     calloc.free(argumentsPtr);
     calloc.free(operationPtr);
 
-    commonPrint.log("windows runas: $command $arguments resultCode:$result");
+    commonPrint.log("Windows elevation result: $result");
 
-    if (result < 42) {
+    if (result <= 32) {
       return false;
     }
     return true;

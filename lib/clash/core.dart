@@ -60,7 +60,7 @@ class ClashCore {
         await geoFile.writeAsBytes(bytes, flush: true);
       }
     } catch (e) {
-      exit(0);
+      throw StateError('Unable to initialize bundled network data');
     }
   }
 

@@ -98,26 +98,31 @@ func handleStopTun() {
 	}
 }
 
-func handleStartTun(fd int, callback unsafe.Pointer) {
+func handleStartTun(fd int, callback unsafe.Pointer) bool {
 	handleStopTun()
 	tunLock.Lock()
 	defer tunLock.Unlock()
-	now := time.Now()
-	runTime = &now
+	if currentConfig == nil {
+		return false
+	}
 	if fd != 0 {
 		tunHandler = &TunHandler{
 			callback: callback,
 			limit:    semaphore.NewWeighted(4),
 		}
 		initTunHook()
-		tunListener, _ := t.Start(fd, currentConfig.General.Tun.Device, currentConfig.General.Tun.Stack)
-		if tunListener != nil {
+		tunListener, err := t.Start(fd, currentConfig.General.Tun.Device, currentConfig.General.Tun.Stack)
+		if err == nil && tunListener != nil {
 			log.Infoln("TUN address: %v", tunListener.Address())
 			tunHandler.listener = tunListener
 		} else {
 			removeTunHook()
+			return false
 		}
 	}
+	now := time.Now()
+	runTime = &now
+	return true
 }
 
 func handleGetRunTime() string {
@@ -226,10 +231,7 @@ func quickStart(initParamsChar *C.char, paramsChar *C.char, stateParamsChar *C.c
 
 //export startTUN
 func startTUN(fd C.int, callback unsafe.Pointer) bool {
-	go func() {
-		handleStartTun(int(fd), callback)
-	}()
-	return true
+	return handleStartTun(int(fd), callback)
 }
 
 //export getRunTime

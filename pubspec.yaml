@@ -1,7 +1,7 @@
 name: fl_clash
 description: A multi-platform proxy client based on ClashMeta, simple and easy to use, open-source and ad-free.
 publish_to: 'none'
-version: 2.6.1+2025091115
+version: 0.1.0+1
 environment:
   sdk: '>=3.1.0 <4.0.0'
 
@@ -40,7 +40,7 @@ dependencies:
   re_editor:
     git:
       url: https://github.com/chen08209/re-editor.git
-      ref: main
+      ref: 8f1c28514cc1730cffd5b927e715e8b83cc417c1
   re_highlight: ^0.0.3
   archive: ^3.6.1
   lpinyin: ^2.0.3
@@ -55,18 +55,19 @@ dependencies:
   riverpod_annotation: ^2.6.1
   riverpod: ^2.6.1
   go_router: ^14.6.2
-  material_color_utilities: ^0.11.1
+  material_color_utilities: ^0.13.0
   flutter_js:
     git:
       url: https://github.com/chen08209/flutter_js
-      ref: master
+      ref: c0e10a5dab0e22cd616ec92ae71471d76369cbfe
   yaml: ^3.1.3
   flutter_svg: ^2.1.0
   flutter_cache_manager: ^3.4.1
   crypto: ^3.0.3
   encrypt: ^5.0.1
   pointycastle: ^3.9.1
-  http: ^1.1.0
+  flutter_secure_storage: 10.0.0
+  http: 1.6.0
   flutter_markdown: ^0.7.4+1
   flutter_widget_from_html: ^0.17.1
   uuid: ^4.4.0
@@ -78,7 +79,6 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  test: ^1.24.0
   flutter_lints: ^5.0.0
   ffigen: ^18.1.0
   json_serializable: ^6.7.1
@@ -99,8 +99,6 @@ flutter:
     - assets/fonts/
     - assets/images/
     - assets/images/avatars/
-    - assets/cer/
-    - assets/config/xboard.config.yaml
   fonts:
     - family: JetBrainsMono
       fonts:

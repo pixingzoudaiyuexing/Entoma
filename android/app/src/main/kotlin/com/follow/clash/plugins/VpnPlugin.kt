@@ -44,6 +44,8 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var scope: CoroutineScope
     private var lastStartForegroundParams: StartForegroundParams? = null
     private var timerJob: Job? = null
+    private var startDeadline: Job? = null
+    private var startCompletion: ((Boolean) -> Unit)? = null
     private val uidPageNameMap = mutableMapOf<Int, String>()
 
     private val connectivity by lazy {
@@ -85,7 +87,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         when (call.method) {
             "start" -> {
                 val data = call.argument<String>("data")
-                result.success(handleStart(Gson().fromJson(data, VpnOptions::class.java)))
+                handleStart(Gson().fromJson(data, VpnOptions::class.java)) { started -> result.success(started) }
             }
 
             "stop" -> {
@@ -99,7 +101,14 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    fun handleStart(options: VpnOptions): Boolean {
+    fun handleStart(options: VpnOptions, completion: ((Boolean) -> Unit)? = null): Boolean {
+        finishStart(false)
+        startCompletion = completion
+        startDeadline = CoroutineScope(Dispatchers.Main).launch {
+            delay(30000)
+            handleStop()
+            finishStart(false)
+        }
         onUpdateNetwork();
         if (options.enable != this.options?.enable) {
             this.flClashService = null
@@ -110,6 +119,14 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             false -> handleStartService()
         }
         return true
+    }
+
+    private fun finishStart(started: Boolean) {
+        startDeadline?.cancel()
+        startDeadline = null
+        val callback = startCompletion
+        startCompletion = null
+        if (callback != null) CoroutineScope(Dispatchers.Main).launch { callback(started) }
     }
 
     private fun handleStartVpn() {
@@ -214,15 +231,25 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             return
         }
         GlobalState.runLock.withLock {
-            if (GlobalState.runState.value == RunState.START) return
-            GlobalState.runState.value = RunState.START
+            if (GlobalState.runState.value == RunState.START) { finishStart(true); return }
+            try {
             val fd = flClashService?.start(options!!)
-            Core.startTun(
+            if (options?.enable == true && (fd == null || fd <= 0)) throw IllegalStateException("VPN interface unavailable")
+            val started = Core.startTun(
                 fd = fd ?: 0,
                 protect = this::protect,
                 resolverProcess = this::resolverProcess,
             )
+            if (!started) throw IllegalStateException("TUN start failed")
+            GlobalState.runState.value = RunState.START
             startForegroundJob()
+            finishStart(true)
+            } catch (_: Exception) {
+                flClashService?.stop()
+                Core.stopTun()
+                GlobalState.runState.value = RunState.STOP
+                finishStart(false)
+            }
         }
     }
 
@@ -253,6 +280,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     fun handleStop() {
+        finishStart(false)
         GlobalState.runLock.withLock {
             if (GlobalState.runState.value == RunState.STOP) return
             GlobalState.runState.value = RunState.STOP

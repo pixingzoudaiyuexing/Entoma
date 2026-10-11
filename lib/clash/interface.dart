@@ -124,7 +124,9 @@ abstract class ClashHandlerInterface with ClashInterface {
   }) async {
     final id = "${method.name}#${utils.id}";
 
-    callbackCompleterMap[id] = Completer<T>();
+    final pending = Completer<T>();
+    pending.future.ignore();
+    callbackCompleterMap[id] = pending;
 
     dynamic mDefaultValue = defaultValue;
     if (mDefaultValue == null) {
@@ -137,23 +139,36 @@ abstract class ClashHandlerInterface with ClashInterface {
       }
     }
 
-    sendMessage(
-      json.encode(
-        Action(
-          id: id,
-          method: method,
-          data: data,
+    try {
+      await sendMessage(
+        json.encode(
+          Action(
+            id: id,
+            method: method,
+            data: data,
+          ),
         ),
-      ),
-    );
-
-    return (callbackCompleterMap[id] as Completer<T>).safeFuture(
+      );
+    } catch (_) {
+      callbackCompleterMap.remove(id);
+      rethrow;
+    }
+    return pending.safeFuture(
       timeout: timeout,
       onLast: () {
         callbackCompleterMap.remove(id);
       },
       onTimeout: onTimeout ??
           () {
+            if ({
+              ActionMethod.validateConfig,
+              ActionMethod.setupConfig,
+              ActionMethod.updateConfig,
+              ActionMethod.initClash,
+              ActionMethod.changeProxy
+            }.contains(method)) {
+              throw StateError('代理核心未响应，请重试');
+            }
             return mDefaultValue;
           },
       functionName: id,
