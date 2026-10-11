@@ -52,7 +52,9 @@ class _StartButtonState extends ConsumerState<StartButton>
   bool pending = false;
   Future<void> handleSwitchStart() async {
     if (pending) return;
-    setState(() { pending = true; });
+    setState(() {
+      pending = true;
+    });
     try {
       final target = !ref.read(runTimeProvider.notifier).isStart;
       await globalState.appController.updateStatus(target);
@@ -60,20 +62,13 @@ class _StartButtonState extends ConsumerState<StartButton>
       globalState.showNotifier('连接未完成，请检查端口、订阅或系统权限后重试。');
     } finally {
       if (mounted) {
-        setState(() { pending = false; isStart = ref.read(runTimeProvider.notifier).isStart; });
+        setState(() {
+          pending = false;
+          isStart = ref.read(runTimeProvider.notifier).isStart;
+        });
         updateController();
       }
     }
-  }
-
-  updateController();
-    debouncer.call(
-      FunctionTag.updateStatus,
-      () {
-        globalState.appController.updateStatus(isStart);
-      },
-      duration: commonDuration,
-    );
   }
 
   updateController() {
@@ -119,9 +114,7 @@ class _StartButtonState extends ConsumerState<StartButton>
             clipBehavior: Clip.antiAlias,
             materialTapTargetSize: MaterialTapTargetSize.padded,
             heroTag: null,
-            onPressed: () {
-              handleSwitchStart();
-            },
+            onPressed: pending ? null : handleSwitchStart,
             child: Row(
               mainAxisSize: MainAxisSize.max,
               children: [
