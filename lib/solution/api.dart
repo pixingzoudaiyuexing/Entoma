@@ -24,7 +24,7 @@ class SolutionError implements Exception {
         'STALE_SESSION' => '账户已切换，请刷新后继续',
         'SUBSCRIPTION_ACCESS_UNAVAILABLE' => '当前账户暂无可用订阅',
         'MUTATION_PENDING' => '上次操作结果尚未确认，请先查看最新记录',
-        'STORAGE_ERROR' => '无法安全保存登录信息，请检查系统密钥存储',
+        'STORAGE_ERROR' => '无法访问系统密钥存储，请在系统中解锁后重试',
         'CHALLENGE_REQUIRED' => '当前注册需要网页人机验证，请联系服务方提供验证入口',
         'INVALID_RESPONSE' => '服务返回了无法识别的内容，请稍后重试',
         _ => '操作未完成，请刷新后重试',

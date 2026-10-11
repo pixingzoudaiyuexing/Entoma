@@ -272,6 +272,12 @@ class _AccountPageState extends ConsumerState<SolutionAccountPage> {
           ),
           const Text('离线时仍可在连接与节点页面使用已保存的配置。'),
           OutlinedButton(
+            onPressed: working || session.busy
+                ? null
+                : () => act(() => session.restore()),
+            child: const Text('重新读取登录状态'),
+          ),
+          OutlinedButton(
               onPressed: working
                   ? null
                   : () => act(() async {
