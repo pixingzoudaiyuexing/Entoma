@@ -107,6 +107,8 @@ class ClashService extends ClashHandlerInterface {
                     session.socket.isCompleted ||
                     value is! Map ||
                     value['auth'] != session.secret) {
+                  commonPrint
+                      .log('Core IPC rejected an unauthenticated connection');
                   socket.destroy();
                   return;
                 }
@@ -115,6 +117,7 @@ class ClashService extends ClashHandlerInterface {
                 session.authenticationTimeout?.cancel();
                 session.socket.complete(socket);
                 system.elevatedCoreActive = session.elevated;
+                commonPrint.log('Core IPC authenticated');
                 return;
               }
               if (owner != _active || owner!.closed) {
@@ -122,7 +125,8 @@ class ClashService extends ClashHandlerInterface {
                 return;
               }
               handleResult(ActionResult.fromJson(value));
-            } catch (_) {
+            } catch (error) {
+              commonPrint.log('Core IPC frame rejected: ${error.runtimeType}');
               socket.destroy();
             }
           },
@@ -201,6 +205,7 @@ class ClashService extends ClashHandlerInterface {
       } else {
         session.process = await Process.start(appPath.corePath, [argument]);
       }
+      commonPrint.log('Core process launched');
       session.process?.stdout.drain<void>();
       session.process?.stderr
           .transform(utf8.decoder)
@@ -212,8 +217,9 @@ class ClashService extends ClashHandlerInterface {
           commonPrint.log(line.split('(').first);
         }
       });
-      session.process?.exitCode.then((_) {
+      session.process?.exitCode.then((code) {
         if (_active != session || session.closed) return;
+        commonPrint.log('Core process exited: $code');
         session.authenticationTimeout?.cancel();
         if (!session.socket.isCompleted)
           session.socket.completeError(StateError('Core exited'));
@@ -221,7 +227,8 @@ class ClashService extends ClashHandlerInterface {
         _markDisconnected();
         _failPending();
       });
-    } catch (_) {
+    } catch (error) {
+      commonPrint.log('Core launch failed: ${error.runtimeType}');
       session.authenticationTimeout?.cancel();
       if (!session.socket.isCompleted)
         session.socket.completeError(StateError('Core could not start'));

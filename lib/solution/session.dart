@@ -241,6 +241,14 @@ class SolutionSession extends ChangeNotifier {
       }
       initialized = true;
       await refreshAccount();
+    } catch (error) {
+      if (expected == generation) {
+        notice = error is SolutionError
+            ? error.toString()
+            : const SolutionError('INVALID_RESPONSE').toString();
+        notifyListeners();
+      }
+      rethrow;
     } finally {
       if (expected == generation) {
         busy = false;
