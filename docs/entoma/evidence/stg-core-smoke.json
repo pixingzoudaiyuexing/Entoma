@@ -1,0 +1,51 @@
+{
+  "capturedAt": "2026-10-11T17:29:21.415Z",
+  "evidence": {
+    "apiTransport": "existing-loopback-proxy",
+    "login": true,
+    "accountActive": true,
+    "wallet": {
+      "ok": true,
+      "balanceZero": false
+    },
+    "subscription/overview": {
+      "ok": true
+    },
+    "products": {
+      "ok": true,
+      "count": 6
+    },
+    "orders": {
+      "ok": true,
+      "count": 7
+    },
+    "billing/methods": {
+      "ok": true,
+      "count": 2
+    },
+    "tickets": {
+      "ok": true
+    },
+    "referrals": {
+      "ok": true
+    },
+    "subscription": {
+      "bytes": 23733,
+      "nodes": 4,
+      "preparedSha256": "b3f42b5984a4aeb7b5fb1eb1cab5c5557fa0a39b96cd4714fc0b5a57f952e2b7"
+    },
+    "nativeCoreAuthenticated": true,
+    "nativeCoreConfigValidation": true,
+    "nativeCoreStarted": true,
+    "nodeSelected": true,
+    "latencyMeasured": true,
+    "nativeCoreHttpsForwarding": true,
+    "nativeCoreTrafficPositive": true,
+    "malformedUpdateRejected": true,
+    "forwardingSurvivesMalformedUpdate": true,
+    "nativeCoreStopped": true,
+    "listenerReleased": true,
+    "systemProxyChanged": false,
+    "tunEnabled": false
+  }
+}

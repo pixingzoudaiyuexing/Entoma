@@ -320,7 +320,7 @@ class _OrderPageState extends ConsumerState<OrderPage> {
       );
       if (!mounted || session.generation != widget.generation) return;
       await session.reconcileOrder(value);
-      if (!mounted) return;
+      if (!mounted || session.generation != widget.generation) return;
       setState(() {
         order = value;
         error = null;
@@ -363,7 +363,8 @@ class _OrderPageState extends ConsumerState<OrderPage> {
         ],
       ),
     );
-    if (chosen == null || session.generation != widget.generation) return;
+    if (chosen == null || !mounted || session.generation != widget.generation)
+      return;
     final result = await session.mutate(
       'checkout:${widget.id}',
       (mutation) async => CheckoutAction(
@@ -382,10 +383,10 @@ class _OrderPageState extends ConsumerState<OrderPage> {
     });
     // Every action, including finished, still requires authoritative order reads.
     await refresh();
+    if (!mounted || session.generation != widget.generation) return;
     timer?.cancel();
-    if (order?.terminal != true) {
-      timer = Timer.periodic(const Duration(seconds: 5), (_) => refresh());
-    }
+    if (order?.terminal == true) return;
+    timer = Timer.periodic(const Duration(seconds: 5), (_) => refresh());
     if (result.type == 'redirect') {
       await launchUrl(
         Uri.parse(result.payload!),

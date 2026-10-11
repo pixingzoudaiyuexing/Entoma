@@ -27,18 +27,23 @@ class EntomaMacVaultOptions extends MacOsOptions {
 class NativeSessionVault implements SessionVault {
   final FlutterSecureStorage storage;
   final String key;
-  NativeSessionVault(String origin, {FlutterSecureStorage? storage})
-      : storage = storage ??
+  final Duration readTimeout;
+  NativeSessionVault(
+    String origin, {
+    FlutterSecureStorage? storage,
+    this.readTimeout = const Duration(seconds: 10),
+  })  : storage = storage ??
             const FlutterSecureStorage(mOptions: EntomaMacVaultOptions()),
         key = 'entoma.session.v1.$origin';
   @override
-  Future<String?> read() => storage.read(key: key);
+  Future<String?> read() => storage.read(key: key).timeout(readTimeout);
   @override
   Future<void> write(String? value) => value == null
       ? storage.delete(key: key)
       : storage.write(key: key, value: value);
   @override
-  Future<String?> readJournal() => storage.read(key: '$key.pending');
+  Future<String?> readJournal() =>
+      storage.read(key: '$key.pending').timeout(readTimeout);
   @override
   Future<void> writeJournal(String value) =>
       storage.write(key: '$key.pending', value: value);

@@ -12,8 +12,13 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 class SafeProbeClient extends http.BaseClient {
-  final http.Client inner =
-      IOClient(HttpClient()..connectionTimeout = const Duration(seconds: 8));
+  final http.Client inner;
+  SafeProbeClient({int? loopbackProxyPort})
+      : inner = IOClient(HttpClient()
+          ..connectionTimeout = const Duration(seconds: 8)
+          ..findProxy = (uri) => loopbackProxyPort == null
+              ? 'DIRECT'
+              : 'PROXY 127.0.0.1:$loopbackProxyPort');
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     final resource = request.url.path.startsWith('/api/v1/')
@@ -39,14 +44,22 @@ class SafeProbeClient extends http.BaseClient {
 
 Future<void> main(List<String> arguments) async {
   final input = object(jsonDecode(await stdin.transform(utf8.decoder).join()));
-  final api =
-      SolutionApi(baseUrl: input['origin'] as String? ?? solutionOrigin);
+  final proxyPort = input['loopbackProxyPort'];
+  if (proxyPort != null &&
+      (proxyPort is! int || proxyPort < 1 || proxyPort > 65535)) {
+    throw ArgumentError('Invalid loopback proxy port');
+  }
+  final api = SolutionApi(
+      baseUrl: input['origin'] as String? ?? solutionOrigin,
+      client: SafeProbeClient(loopbackProxyPort: proxyPort as int?));
   Directory? temporary;
   ServerSocket? server;
   Socket? coreSocket;
   Process? core;
   HttpClient? proxy;
   final evidence = <String, Object?>{};
+  evidence['apiTransport'] =
+      proxyPort == null ? 'direct' : 'existing-loopback-proxy';
   try {
     stderr.writeln('Checking login');
     final login =
@@ -261,5 +274,9 @@ Future<void> main(List<String> arguments) async {
     if (temporary != null && await temporary.exists())
       await temporary.delete(recursive: true);
     api.close();
+    // A pending platform DNS lookup can otherwise keep the one-shot VM alive.
+    await stdout.flush();
+    await stderr.flush();
+    exit(exitCode);
   }
 }

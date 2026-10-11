@@ -29,6 +29,8 @@ service was changed. V2Board retains all business authority and callback ownersh
 - Login/register/email code/password reset use Solution's public contract. Passwords
   are never stored; Token/session and unknown-operation journal use native secure
   storage. macOS uses the ordinary Keychain without sharing/provisioning.
+  Native reads have a 10-second deadline, so a pending OS authorization cannot
+  indefinitely block local core initialization. An unreadable journal fails closed.
 - Account, wallet, current plan, traffic and expiry are read separately. Only a
   confirmed authentication failure clears the session. No client JWT interpretation.
 - Subscription content uses `Clash.Meta/...` UA (verified against STG); `mihomo/...`
@@ -89,6 +91,9 @@ counts and hashes. Passing a core path verifies the actual Entoma IPC core, conf
 loading, selection, delay, real HTTPS proxy traffic, LKG after malformed input and
 listener release. It never changes system proxy or enables TUN. Subscription bytes
 stay in process memory; temporary geodata/IPC directories are removed afterward.
+The optional numeric `loopbackProxyPort` stdin field uses an already running local
+proxy for the probe's API HTTPS transport only; it changes no system setting and
+does not implement client control-channel failover. Evidence records this choice.
 
 ## Evidence limits and review
 
@@ -104,3 +109,13 @@ turning off server protection. Android/Windows real device and native permission
 flows, payment-provider callbacks and release signing require separate conditions.
 Formal independent review remains REQUIRED until the Project workflow accepts a
 review of the final candidate. Embedded specialist feedback does not replace it.
+
+Ad-hoc macOS test bundles have hash-based signing requirements. A rebuilt binary
+may need the user's system authorization to read an older Keychain item. Native
+sampling confirmed a synchronous Keychain decrypt wait on this Mac. The read
+deadline releases startup but cannot cancel that native operation or approve the
+system dialog; continued account operations can still require manual authorization.
+No ACL, Keychain contents, TLS policy or OS credential was bypassed or changed.
+
+See `REVIEW.md` for the final review surface, evidence classification and remaining
+release gates, and `evidence/stg-core-smoke.json` for sanitized live core evidence.

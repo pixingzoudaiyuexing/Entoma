@@ -80,7 +80,10 @@ class _AccountPageState extends ConsumerState<SolutionAccountPage> {
       throw const SolutionError('VALIDATION_ERROR');
     }
     if (mode == 'reset') {
-      await session.api.call(
+      if (!RegExp(r'^\d{6}$').hasMatch(code.text.trim())) {
+        throw const SolutionError('VALIDATION_ERROR');
+      }
+      final result = await session.api.call(
         '/api/v1/auth/password/reset',
         method: 'POST',
         body: {
@@ -89,6 +92,9 @@ class _AccountPageState extends ConsumerState<SolutionAccountPage> {
           'newPassword': password.text,
         },
       );
+      if (result is! Map<String, dynamic> || result['reset'] != true) {
+        throw const SolutionError('INVALID_RESPONSE', outcomeUnknown: true);
+      }
       password.clear();
       if (mounted) {
         setState(() {
@@ -184,7 +190,7 @@ class _AccountPageState extends ConsumerState<SolutionAccountPage> {
                                 60) {
                           return;
                         }
-                        await session.api.call(
+                        final result = await session.api.call(
                           '/api/v1/auth/email-code',
                           method: 'POST',
                           body: {
@@ -194,6 +200,11 @@ class _AccountPageState extends ConsumerState<SolutionAccountPage> {
                                 : 'password-reset',
                           },
                         );
+                        if (result is! Map<String, dynamic> ||
+                            result['sent'] != true) {
+                          throw const SolutionError('INVALID_RESPONSE',
+                              outcomeUnknown: true);
+                        }
                         codeSent = DateTime.now();
                       }, success: '验证码已发送，请查看邮箱'),
               child: const Text('发送验证码'),
