@@ -1,4 +1,3 @@
-import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.argumentsWithVarargAsSingleArray
 
 plugins {
     id("com.android.library")
