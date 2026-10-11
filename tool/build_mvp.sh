@@ -6,8 +6,9 @@ ENTOMA_PLATFORM="${1:?Usage: build_mvp.sh macos|windows|android}"
 ENTOMA_API_ORIGIN="${SOLUTION_ORIGIN:-https://cc-solution-stg.482658.xyz}"
 case "$ENTOMA_PLATFORM" in
   macos)
-    ENTOMA_ARCH="${ENTOMA_ARCH:-arm64}"
-    (cd core && GOOS=darwin GOARCH="$ENTOMA_ARCH" CGO_ENABLED=0 go build -ldflags='-w -s' -tags=with_gvisor -o ../libclash/macos/FlClashCore .)
+    (cd core && GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags='-w -s' -tags=with_gvisor -o ../libclash/macos/FlClashCore-arm64 .)
+    (cd core && GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags='-w -s' -tags=with_gvisor -o ../libclash/macos/FlClashCore-amd64 .)
+    lipo -create libclash/macos/FlClashCore-arm64 libclash/macos/FlClashCore-amd64 -output libclash/macos/FlClashCore
     ENTOMA_CORE=libclash/macos/FlClashCore
     ;;
   windows)

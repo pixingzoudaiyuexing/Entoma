@@ -1,7 +1,9 @@
 package main
 
 import (
+	"github.com/metacubex/mihomo/component/profile/cachefile"
 	"net"
+	"os"
 	"strconv"
 	"testing"
 
@@ -10,9 +12,26 @@ import (
 	"github.com/metacubex/mihomo/listener"
 )
 
+var testHomeDirectory string
+
+func TestMain(m *testing.M) {
+	directory, err := os.MkdirTemp("", "entoma-core-tests-")
+	if err != nil {
+		panic(err)
+	}
+	testHomeDirectory = directory
+	constant.SetHomeDir(directory)
+	code := m.Run()
+	if cache := cachefile.Cache(); cache.DB != nil {
+		_ = cache.Close()
+	}
+	_ = os.RemoveAll(directory)
+	os.Exit(code)
+}
+
 func testConfig(t *testing.T, port int) *SetupParams {
 	t.Helper()
-	constant.SetHomeDir(t.TempDir())
+	constant.SetHomeDir(testHomeDirectory)
 	raw := config.DefaultRawConfig()
 	raw.MixedPort = port
 	raw.BindAddress = "127.0.0.1"
@@ -42,7 +61,7 @@ func TestInvalidConfigPreservesLastGood(t *testing.T) {
 }
 
 func TestValidateChecksProxySemantics(t *testing.T) {
-	constant.SetHomeDir(t.TempDir())
+	constant.SetHomeDir(testHomeDirectory)
 	message := handleValidateConfig([]byte("proxies:\n  - {name: fixture, type: ss, server: 127.0.0.1, port: 443, cipher: invalid, password: fixture}\n"))
 	if message == "" {
 		t.Fatal("unmarshal-only validation accepted invalid cipher")
@@ -124,4 +143,57 @@ func TestOccupiedUDPReleasesTCPAndCanRetry(t *testing.T) {
 	if listener.GetPorts().MixedPort != 0 {
 		t.Fatal("disconnect retained listener")
 	}
+}
+
+func TestUpdateBeforeSetupDoesNotCrash(t *testing.T) {
+	handleStopListener()
+	currentConfig = nil
+	if err := updateConfig(&UpdateParams{}); err == nil {
+		t.Fatal("uninitialized update was accepted")
+	}
+}
+func TestPartialTunUpdateDoesNotCrash(t *testing.T) {
+	handleStopListener()
+	if err := setupConfig(testConfig(t, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := updateConfig(&UpdateParams{Tun: &tunSchema{Enable: false}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunningUpdateFailureRestoresListener(t *testing.T) {
+	handleStopListener()
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+	_, badText, _ := net.SplitHostPort(occupied.Addr().String())
+	badPort, _ := strconv.Atoi(badText)
+	reservation, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, goodText, _ := net.SplitHostPort(reservation.Addr().String())
+	goodPort, _ := strconv.Atoi(goodText)
+	reservation.Close()
+	if err := setupConfig(testConfig(t, goodPort)); err != nil {
+		t.Fatal(err)
+	}
+	if !handleStartListener() {
+		t.Fatal("initial listener failed")
+	}
+	defer handleStopListener()
+	if err := updateConfig(&UpdateParams{MixedPort: &badPort}); err == nil {
+		t.Fatal("occupied update accepted")
+	}
+	if !isRunning || currentConfig.General.MixedPort != goodPort || listener.GetPorts().MixedPort != goodPort {
+		t.Fatal("last running listener was not restored")
+	}
+	connection, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(goodPort))
+	if err != nil {
+		t.Fatal("restored listener is unreachable")
+	}
+	connection.Close()
 }

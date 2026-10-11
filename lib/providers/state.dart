@@ -128,6 +128,8 @@ UpdateParams updateParams(Ref ref) {
   );
 }
 
+final acceptedMixedPortProvider = StateProvider<int?>((ref) => null);
+
 @riverpod
 ProxyState proxyState(Ref ref) {
   final isStart = ref.watch(runTimeProvider.select((state) => state != null));
@@ -137,9 +139,8 @@ ProxyState proxyState(Ref ref) {
       b: state.bypassDomain,
     ),
   ));
-  final mixedPort = ref.watch(
-    patchClashConfigProvider.select((state) => state.mixedPort),
-  );
+  final mixedPort = ref.watch(acceptedMixedPortProvider) ??
+      ref.read(patchClashConfigProvider).mixedPort;
   return ProxyState(
     isStart: isStart,
     systemProxy: vm2.a,

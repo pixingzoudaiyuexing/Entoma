@@ -10,6 +10,7 @@ public class ProxyPlugin: NSObject, FlutterPlugin {
     let enabled: Bool
     var applied: [String: Any]
   }
+  private var restorationPending = false
   private var snapshot: Snapshot?
   private var preferences: SCPreferences?
   private var authorization: AuthorizationRef?
@@ -81,6 +82,7 @@ public class ProxyPlugin: NSObject, FlutterPlugin {
   }
 
   private func start(port: Int, bypass: [String]) throws {
+    guard !restorationPending else { throw ProxyFailure.writeFailed }
     let prefs = try session()
     guard SCPreferencesLock(prefs, true) else { throw ProxyFailure.unavailable }
     defer { SCPreferencesUnlock(prefs) }
@@ -111,12 +113,16 @@ public class ProxyPlugin: NSObject, FlutterPlugin {
           SCNetworkProtocolSetEnabled(proto, true) else { throw ProxyFailure.writeFailed }
     do { try commit(prefs) }
     catch {
-      SCNetworkProtocolSetConfiguration(proto, owned.original as CFDictionary)
-      SCNetworkProtocolSetEnabled(proto, owned.enabled)
-      try? commit(prefs)
+      owned.applied = configuration(proto)
+      snapshot = owned
+      if SCNetworkProtocolSetConfiguration(proto, owned.original as CFDictionary),
+         SCNetworkProtocolSetEnabled(proto, owned.enabled), SCPreferencesCommitChanges(prefs) {
+        restorationPending = true
+        if SCPreferencesApplyChanges(prefs) { snapshot = nil; restorationPending = false }
+      }
       throw error
     }
-    owned.applied = next
+    owned.applied = configuration(proto)
     snapshot = owned
   }
 
@@ -126,14 +132,21 @@ public class ProxyPlugin: NSObject, FlutterPlugin {
     guard SCPreferencesLock(prefs, true) else { throw ProxyFailure.unavailable }
     defer { SCPreferencesUnlock(prefs) }
     let proto = try networkProtocol(prefs, serviceID: owned.service)
-    guard NSDictionary(dictionary: configuration(proto)).isEqual(to: owned.applied) else {
-      snapshot = nil // Preserve changes made by the user or another application.
+    let expected = restorationPending ? owned.original : owned.applied
+    guard NSDictionary(dictionary: configuration(proto)).isEqual(to: expected) else {
+      snapshot = nil
+      restorationPending = false
       return
     }
-    guard SCNetworkProtocolSetConfiguration(proto, owned.original as CFDictionary),
-          SCNetworkProtocolSetEnabled(proto, owned.enabled) else { throw ProxyFailure.writeFailed }
-    try commit(prefs)
+    if !restorationPending {
+      guard SCNetworkProtocolSetConfiguration(proto, owned.original as CFDictionary),
+            SCNetworkProtocolSetEnabled(proto, owned.enabled),
+            SCPreferencesCommitChanges(prefs) else { throw ProxyFailure.writeFailed }
+      restorationPending = true
+    }
+    guard SCPreferencesApplyChanges(prefs) else { throw ProxyFailure.writeFailed }
     snapshot = nil
+    restorationPending = false
   }
 
   deinit {

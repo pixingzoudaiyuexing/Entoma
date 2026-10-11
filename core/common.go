@@ -185,60 +185,85 @@ func readFile(path string) ([]byte, error) {
 func updateConfig(params *UpdateParams) error {
 	runLock.Lock()
 	defer runLock.Unlock()
+	if currentConfig == nil {
+		return errors.New("core configuration is not ready")
+	}
 	general := currentConfig.General
+	previousGeneral := *general
+	previousController := *currentConfig.Controller
 	if params.MixedPort != nil {
 		general.MixedPort = *params.MixedPort
 	}
 	if params.Sniffing != nil {
 		general.Sniffing = *params.Sniffing
-		tunnel.SetSniffing(general.Sniffing)
 	}
 	if params.FindProcessMode != nil {
 		general.FindProcessMode = *params.FindProcessMode
-		tunnel.SetFindProcessMode(general.FindProcessMode)
 	}
 	if params.TCPConcurrent != nil {
 		general.TCPConcurrent = *params.TCPConcurrent
-		dialer.SetTcpConcurrent(general.TCPConcurrent)
 	}
 	if params.Interface != nil {
 		general.Interface = *params.Interface
-		dialer.DefaultInterface.Store(general.Interface)
 	}
 	if params.UnifiedDelay != nil {
 		general.UnifiedDelay = *params.UnifiedDelay
-		adapter.UnifiedDelay.Store(general.UnifiedDelay)
 	}
 	if params.Mode != nil {
 		general.Mode = *params.Mode
-		tunnel.SetMode(general.Mode)
 	}
 	if params.LogLevel != nil {
 		general.LogLevel = *params.LogLevel
-		log.SetLevel(general.LogLevel)
 	}
 	if params.IPv6 != nil {
 		general.IPv6 = *params.IPv6
-		resolver.DisableIPv6 = !general.IPv6
 	}
 	if params.ExternalController != nil {
 		currentConfig.Controller.ExternalController = *params.ExternalController
-		route.ReCreateServer(&route.Config{
-			Addr:   currentConfig.Controller.ExternalController,
-			Secret: currentConfig.Controller.Secret,
-		})
+
 	}
 
 	if params.Tun != nil {
 		general.Tun.Enable = params.Tun.Enable
-		general.Tun.AutoRoute = *params.Tun.AutoRoute
-		general.Tun.Device = *params.Tun.Device
-		general.Tun.RouteAddress = *params.Tun.RouteAddress
-		general.Tun.DNSHijack = *params.Tun.DNSHijack
-		general.Tun.Stack = *params.Tun.Stack
+		if params.Tun.AutoRoute != nil {
+			general.Tun.AutoRoute = *params.Tun.AutoRoute
+		}
+		if params.Tun.Device != nil {
+			general.Tun.Device = *params.Tun.Device
+		}
+		if params.Tun.RouteAddress != nil {
+			general.Tun.RouteAddress = *params.Tun.RouteAddress
+		}
+		if params.Tun.DNSHijack != nil {
+			general.Tun.DNSHijack = *params.Tun.DNSHijack
+		}
+		if params.Tun.Stack != nil {
+			general.Tun.Stack = *params.Tun.Stack
+		}
 	}
 
-	return updateListeners()
+	if err := updateListeners(); err != nil {
+		*general = previousGeneral
+		*currentConfig.Controller = previousController
+		if rollbackErr := updateListeners(); rollbackErr != nil {
+			isRunning = false
+			listener.StopListener()
+			return errors.New("listener update and rollback failed")
+		}
+		return err
+	}
+	tunnel.SetSniffing(general.Sniffing)
+	tunnel.SetFindProcessMode(general.FindProcessMode)
+	dialer.SetTcpConcurrent(general.TCPConcurrent)
+	dialer.DefaultInterface.Store(general.Interface)
+	adapter.UnifiedDelay.Store(general.UnifiedDelay)
+	tunnel.SetMode(general.Mode)
+	log.SetLevel(general.LogLevel)
+	resolver.DisableIPv6 = !general.IPv6
+	if params.ExternalController != nil {
+		route.ReCreateServer(&route.Config{Addr: currentConfig.Controller.ExternalController, Secret: currentConfig.Controller.Secret})
+	}
+	return nil
 }
 
 func setupConfig(params *SetupParams) error {
@@ -248,6 +273,7 @@ func setupConfig(params *SetupParams) error {
 	if err != nil {
 		return err
 	}
+	previousTestURL := constant.DefaultTestURL
 	constant.DefaultTestURL = params.TestURL
 	previous := currentConfig
 	currentConfig = candidate
@@ -257,7 +283,12 @@ func setupConfig(params *SetupParams) error {
 		if previous != nil {
 			currentConfig = previous
 			hub.ApplyConfig(previous)
-			_ = updateListeners()
+			constant.DefaultTestURL = previousTestURL
+			if rollbackErr := updateListeners(); rollbackErr != nil {
+				isRunning = false
+				listener.StopListener()
+				return errors.New("configuration update and rollback failed")
+			}
 		}
 		return err
 	}

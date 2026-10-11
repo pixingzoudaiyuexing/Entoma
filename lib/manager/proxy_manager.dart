@@ -23,6 +23,9 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     final port = proxyState.port;
     if (isStart && systemProxy) {
       final result = await proxy?.startProxy(port, proxyState.bassDomain);
+      if (result == false) {
+        await proxy?.stopProxy();
+      }
       if (result == false)
         globalState.showNotifier('无法设置系统代理。原有设置已保留，请检查系统权限。');
     } else {

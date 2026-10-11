@@ -1,0 +1,2 @@
+# Unified patch context intentionally starts with a space before Go indentation.
+patches/*.patch -whitespace

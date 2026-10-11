@@ -46,6 +46,8 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var timerJob: Job? = null
     private var startDeadline: Job? = null
     private var startCompletion: ((Boolean) -> Unit)? = null
+    private var startGeneration = 0
+    private var startPending = false
     private val uidPageNameMap = mutableMapOf<Int, String>()
 
     private val connectivity by lazy {
@@ -60,7 +62,8 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 is FlClashService.LocalBinder -> service.getService()
                 else -> throw Exception("invalid binder")
             }
-            handleStartService()
+            if (startPending) handleStartService()
+            else { flClashService?.stop(); unbindService() }
         }
 
         override fun onServiceDisconnected(arg: ComponentName) {
@@ -102,10 +105,13 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     fun handleStart(options: VpnOptions, completion: ((Boolean) -> Unit)? = null): Boolean {
-        finishStart(false)
+        cancelPendingStart()
+        val generation = ++startGeneration
+        startPending = true
         startCompletion = completion
         startDeadline = CoroutineScope(Dispatchers.Main).launch {
             delay(30000)
+            if (generation != startGeneration || !startPending) return@launch
             handleStop()
             finishStart(false)
         }
@@ -122,6 +128,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun finishStart(started: Boolean) {
+        startPending = false
         startDeadline?.cancel()
         startDeadline = null
         val callback = startCompletion
@@ -129,9 +136,23 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         if (callback != null) CoroutineScope(Dispatchers.Main).launch { callback(started) }
     }
 
+    private fun cancelPendingStart() {
+        ++startGeneration
+        finishStart(false)
+    }
+
+    private fun unbindService() {
+        if (isBind) {
+            try { FlClashApplication.getAppContext().unbindService(connection) } catch (_: Exception) {}
+        }
+        isBind = false
+        flClashService = null
+    }
+
     private fun handleStartVpn() {
+        val generation = startGeneration
         GlobalState.getCurrentAppPlugin()?.requestVpnPermission {
-            handleStartService()
+            if (generation == startGeneration && startPending) handleStartService()
         }
     }
 
@@ -226,6 +247,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun handleStartService() {
+        if (!startPending) return
         if (flClashService == null) {
             bindService()
             return
@@ -280,7 +302,8 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     fun handleStop() {
-        finishStart(false)
+        cancelPendingStart()
+        if (GlobalState.runState.value == RunState.STOP) { unbindService(); return }
         GlobalState.runLock.withLock {
             if (GlobalState.runState.value == RunState.STOP) return
             GlobalState.runState.value = RunState.STOP

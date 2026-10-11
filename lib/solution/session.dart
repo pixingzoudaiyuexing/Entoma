@@ -83,21 +83,46 @@ class SolutionSession extends ChangeNotifier {
   Future<void> _persist(int expected) {
     final completion = _writes.catchError((_) {}).then((_) async {
       if (generation != expected) return;
-      if (email != null) _journal[email!] = pendingMutations.toList();
-      await vault.writeJournal(jsonEncode(_journal));
+      final candidate = Map<String, List<String>>.from(_journal);
+      if (email != null) candidate[email!] = pendingMutations.toList();
+      final sessionData = _token == null
+          ? null
+          : jsonEncode({
+              'token': _token,
+              'email': email,
+              'pending': pendingMutations.toList(),
+            });
+      await vault.writeJournal(jsonEncode(candidate));
       if (generation != expected) return;
-      await vault.write(
-        _token == null
-            ? null
-            : jsonEncode({
-                'token': _token,
-                'email': email,
-                'pending': pendingMutations.toList(),
-              }),
-      );
+      await vault.write(sessionData);
+      if (generation == expected) {
+        _journal
+          ..clear()
+          ..addAll(candidate);
+      }
     });
     _writes = completion;
     return completion;
+  }
+
+  bool _journalReady = false;
+  Future<void> _loadJournal() async {
+    if (_journalReady) return;
+    final journal = await vault.readJournal();
+    final loaded = <String, List<String>>{};
+    if (journal != null) {
+      for (final entry in object(jsonDecode(journal)).entries) {
+        if (entry.value is! List ||
+            (entry.value as List).any((v) => v is! String)) {
+          throw const SolutionError('STORAGE_ERROR');
+        }
+        loaded[entry.key] = (entry.value as List).cast<String>();
+      }
+    }
+    _journal
+      ..clear()
+      ..addAll(loaded);
+    _journalReady = true;
   }
 
   Future<void> restore({bool removeLegacyCredentials = true}) async {
@@ -120,16 +145,7 @@ class SolutionSession extends ChangeNotifier {
           await preferences.remove(key);
         }
       }
-      final journal = await vault.readJournal();
-      if (journal != null) {
-        for (final entry in object(jsonDecode(journal)).entries) {
-          if (entry.value is! List ||
-              (entry.value as List).any((item) => item is! String)) {
-            throw const SolutionError('STORAGE_ERROR');
-          }
-          _journal[entry.key] = (entry.value as List).cast<String>();
-        }
-      }
+      await _loadJournal();
       final value = await vault.read();
       if (expected != generation) return;
       if (value != null) {
@@ -165,6 +181,11 @@ class SolutionSession extends ChangeNotifier {
     String? inviteCode,
   }) async {
     if (busy) return;
+    try {
+      await _loadJournal();
+    } catch (_) {
+      throw const SolutionError('STORAGE_ERROR');
+    }
     busy = true;
     notice = null;
     final expected = ++generation;
@@ -245,6 +266,7 @@ class SolutionSession extends ChangeNotifier {
     String key,
     Future<T> Function(MutationContext) action,
   ) async {
+    if (!_journalReady) throw const SolutionError('STORAGE_ERROR');
     if (pendingMutations.contains(key)) {
       throw const SolutionError('MUTATION_PENDING');
     }
@@ -267,7 +289,7 @@ class SolutionSession extends ChangeNotifier {
       try {
         await _persist(expected);
       } catch (_) {
-        pendingMutations.add(key);
+        if (expected == generation) pendingMutations.add(key);
         throw const SolutionError('STORAGE_ERROR', outcomeUnknown: true);
       }
       return value;
@@ -297,9 +319,11 @@ class SolutionSession extends ChangeNotifier {
     try {
       await _persist(expected);
     } catch (_) {
-      pendingMutations
-        ..clear()
-        ..addAll(old);
+      if (expected == generation) {
+        pendingMutations
+          ..clear()
+          ..addAll(old);
+      }
       rethrow;
     }
     notifyListeners();
@@ -324,7 +348,7 @@ class SolutionSession extends ChangeNotifier {
     try {
       await _persist(expected);
     } catch (_) {
-      pendingMutations.add(key);
+      if (expected == generation) pendingMutations.add(key);
       rethrow;
     }
     notifyListeners();
@@ -381,6 +405,8 @@ class SolutionSession extends ChangeNotifier {
   }
 
   Future<void> clear({bool expired = false}) async {
+    if (email != null && _journalReady)
+      _journal[email!] = pendingMutations.toList();
     final expected = ++generation;
     api.cancelRequests();
     _token = null;
@@ -393,8 +419,22 @@ class SolutionSession extends ChangeNotifier {
     initialized = true;
     notice = expired ? const SolutionError('AUTH_FAILED').toString() : null;
     notifyListeners();
-    await _persist(expected);
-    if (!expired) await onAccountChange?.call(null);
+    var storageFailed = false;
+    try {
+      if (_journalReady)
+        await _persist(expected);
+      else
+        await vault.write(null);
+    } catch (_) {
+      storageFailed = true;
+      // Deleting the account token must still be attempted after a journal error.
+      try {
+        await vault.write(null);
+      } catch (_) {}
+    } finally {
+      if (!expired) await onAccountChange?.call(null);
+    }
+    if (storageFailed) throw const SolutionError('STORAGE_ERROR');
   }
 }
 

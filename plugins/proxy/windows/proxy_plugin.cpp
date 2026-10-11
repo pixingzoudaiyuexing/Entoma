@@ -35,10 +35,11 @@ struct ProxySnapshot {
 };
 std::optional<ProxySnapshot> original;
 std::optional<ProxySnapshot> applied;
+bool restorationPending = false;
 
 bool readProxy(ProxySnapshot& value) {
   INTERNET_PER_CONN_OPTIONW options[4]{};
-  const DWORD names[] = {INTERNET_PER_CONN_FLAGS, INTERNET_PER_CONN_PROXY_SERVER,
+  const DWORD names[] = {INTERNET_PER_CONN_FLAGS_UI, INTERNET_PER_CONN_PROXY_SERVER,
     INTERNET_PER_CONN_PROXY_BYPASS, INTERNET_PER_CONN_AUTOCONFIG_URL};
   for (int i = 0; i < 4; ++i) options[i].dwOption = names[i];
   INTERNET_PER_CONN_OPTION_LISTW list{};
@@ -46,7 +47,8 @@ bool readProxy(ProxySnapshot& value) {
   list.dwOptionCount = 4;
   list.pOptions = options;
   DWORD size = sizeof(list);
-  const bool ok = InternetQueryOptionW(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, &size) != FALSE;
+  bool ok = InternetQueryOptionW(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, &size) != FALSE;
+  if (!ok) { options[0].dwOption = INTERNET_PER_CONN_FLAGS; ok = InternetQueryOptionW(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, &size) != FALSE; }
   if (ok) {
     value.flags = options[0].Value.dwValue;
     value.server = options[1].Value.pszValue ? options[1].Value.pszValue : L"";
@@ -87,7 +89,7 @@ std::wstring wide(const std::string& value) {
 }
 
 bool startProxy(const int port, const flutter::EncodableList& bypassDomain) {
-  if (port < 1024 || port > 65535) return false;
+  if (restorationPending || port < 1024 || port > 65535) return false;
   ProxySnapshot current;
   if (!readProxy(current)) return false;
   if (applied && !(current == *applied)) return false;
@@ -102,7 +104,11 @@ bool startProxy(const int port, const flutter::EncodableList& bypassDomain) {
     if (!next.bypass.empty()) next.bypass += L";";
     next.bypass += wide(*text);
   }
-  if (!writeProxy(next)) { writeProxy(current); return false; }
+  if (!writeProxy(next)) {
+    if (writeProxy(current)) { original.reset(); applied.reset(); }
+    else { ProxySnapshot actual; if (readProxy(actual)) applied = actual; }
+    return false;
+  }
   applied = next;
   return true;
 }
@@ -111,11 +117,13 @@ bool stopProxy() {
   if (!original) return true;
   ProxySnapshot current;
   if (!readProxy(current)) return false;
-  if (applied && !(current == *applied)) {
-    original.reset(); applied.reset(); return true;
+  const auto& expected = restorationPending ? original : applied;
+  if (expected && !(current == *expected)) {
+    original.reset(); applied.reset(); restorationPending = false; return true;
   }
+  restorationPending = true;
   if (!writeProxy(*original)) return false;
-  original.reset(); applied.reset(); return true;
+  original.reset(); applied.reset(); restorationPending = false; return true;
 }
 
 namespace proxy

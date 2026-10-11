@@ -21,7 +21,8 @@ class Proxy extends ProxyPlatform {
       "windows" => await ProxyPlatform.instance.startProxy(port, bypassDomain),
       String() => false,
     };
-    if (result == true) _ownsSystemProxy = true;
+    if (result == true || Platform.isMacOS || Platform.isWindows)
+      _ownsSystemProxy = true;
     return result;
   }
 

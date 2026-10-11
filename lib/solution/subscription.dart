@@ -104,10 +104,13 @@ class SolutionSubscription {
         rethrow;
       }
     } finally {
-      if (staged != null && await staged.exists()) await staged.delete();
-      busy = false;
-      _transaction?.complete();
-      _transaction = null;
+      try {
+        if (staged != null && await staged.exists()) await staged.delete();
+      } finally {
+        busy = false;
+        _transaction?.complete();
+        _transaction = null;
+      }
     }
   }
 
@@ -118,6 +121,17 @@ class SolutionSubscription {
     final keepId = nextEmail == null
         ? null
         : 'entoma-${sha256.convert(utf8.encode('${session.api.origin.origin}\n$nextEmail'))}';
+    if (keepId != null) {
+      final keepPath = await appPath.getProfilePath(keepId);
+      final previous = File('$keepPath.previous');
+      if (await previous.exists()) {
+        final target = File(keepPath);
+        if (await target.exists()) await target.delete();
+        await previous.rename(keepPath);
+      }
+      final staged = File('$keepPath.staged');
+      if (await staged.exists()) await staged.delete();
+    }
     final owned = ref
         .read(profilesProvider)
         .where(
@@ -129,16 +143,21 @@ class SolutionSubscription {
     if (owned.any(
       (profile) => profile.id == ref.read(currentProfileIdProvider),
     )) {
+      await clashCore.closeConnections();
       await globalState.appController.updateStatus(false);
+      final cleared = await clashCore.setupConfig(SetupParams(
+          config: const {}, selectedMap: const {}, testUrl: defaultTestUrl));
+      if (cleared.isNotEmpty)
+        throw const SolutionError('CONFIG_ROLLBACK_FAILED');
       ref.read(currentProfileIdProvider.notifier).value = null;
     }
     for (final profile in owned) {
-      ref.read(profilesProvider.notifier).deleteProfileById(profile.id);
       final path = await appPath.getProfilePath(profile.id);
       for (final suffix in ['', '.previous', '.staged']) {
         final file = File('$path$suffix');
         if (await file.exists()) await file.delete();
       }
+      ref.read(profilesProvider.notifier).deleteProfileById(profile.id);
     }
     if (ref.read(currentProfileIdProvider) == null) {
       final remaining = ref.read(profilesProvider);
@@ -146,6 +165,19 @@ class SolutionSubscription {
         ref.read(currentProfileIdProvider.notifier).value = remaining.first.id;
       }
     }
+    final directory = Directory(await appPath.profilesPath);
+    if (await directory.exists()) {
+      await for (final entry in directory.list(followLinks: false)) {
+        final name = entry.path.split(Platform.pathSeparator).last;
+        final match =
+            RegExp(r'^(entoma-[a-f0-9]{64})\.yaml(?:\.(?:staged|previous))?$')
+                .firstMatch(name);
+        if (match != null && match.group(1) != keepId && entry is File)
+          await entry.delete();
+      }
+    }
+    if (ref.read(currentProfileIdProvider) != null)
+      await globalState.appController.applyProfile(silence: true);
     await globalState.appController.savePreferences();
   }
 }

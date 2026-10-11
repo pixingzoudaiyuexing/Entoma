@@ -23,6 +23,14 @@ import 'views/profiles/override_profile.dart';
 
 class AppController {
   int? lastProfileModified;
+  ClashConfig? _acceptedConfig;
+  Future<void> _configurationQueue = Future.value();
+  Future<T> _configure<T>(Future<T> Function() action) {
+    final operation =
+        _configurationQueue.catchError((_) {}).then((_) => action());
+    _configurationQueue = operation.then<void>((_) {}, onError: (_) {});
+    return operation;
+  }
 
   final BuildContext context;
   final WidgetRef _ref;
@@ -85,24 +93,15 @@ class AppController {
 
   updateStatus(bool isStart) async {
     if (isStart) {
+      if (system.isDesktop && clashService?.hasSession != true) {
+        await restartCore();
+      }
       final selected = _ref.read(currentProfileProvider);
       if (selected == null || !await selected.check())
         throw StateError('请先刷新订阅或添加有效配置');
-      await globalState.handleStart([
-        updateRunTime,
-        updateTraffic,
-      ]);
-      final currentLastModified =
-          await _ref.read(currentProfileProvider)?.profileLastModified;
-      if (currentLastModified == null || lastProfileModified == null) {
-        addCheckIpNumDebounce();
-        return;
-      }
-      if (currentLastModified <= (lastProfileModified ?? 0)) {
-        addCheckIpNumDebounce();
-        return;
-      }
-      applyProfileDebounce();
+      await applyProfile(silence: true);
+      await globalState.handleStart([updateRunTime, updateTraffic]);
+      addCheckIpNumDebounce();
     } else {
       await globalState.handleStop();
       await clashCore.resetTraffic();
@@ -111,6 +110,14 @@ class AppController {
       _ref.read(runTimeProvider.notifier).value = null;
       addCheckIpNumDebounce();
     }
+  }
+
+  void handleCoreDisconnected() {
+    globalState.startTime = null;
+    globalState.stopUpdateTasks();
+    _ref.read(runTimeProvider.notifier).value = null;
+    _ref.read(realTunEnableProvider.notifier).value = false;
+    _ref.read(trafficsProvider.notifier).clear();
   }
 
   updateRunTime() {
@@ -265,13 +272,28 @@ class AppController {
     if (res.isError) {
       return;
     }
-    final realTunEnable = _ref.read(realTunEnableProvider);
-    final message = await clashCore.updateConfig(
-      updateParams.copyWith.tun(
-        enable: realTunEnable,
-      ),
-    );
-    if (message.isNotEmpty) throw message;
+    return _configure(() async {
+      final candidate = _ref.read(patchClashConfigProvider);
+      final realTunEnable = _ref.read(realTunEnableProvider);
+      final message = await clashCore.updateConfig(
+        updateParams.copyWith.tun(
+          enable: realTunEnable,
+        ),
+      );
+      if (message.isNotEmpty) {
+        final previous = _acceptedConfig;
+        if (previous != null &&
+            _ref.read(patchClashConfigProvider) == candidate)
+          _ref
+              .read(patchClashConfigProvider.notifier)
+              .updateState((_) => previous);
+        if (message.contains('rollback failed')) await updateStatus(false);
+        throw message;
+      }
+      _acceptedConfig = candidate;
+      _ref.read(acceptedMixedPortProvider.notifier).state =
+          _acceptedConfig!.mixedPort;
+    });
   }
 
   Future<Result<bool>> _requestAdmin(bool enableTun) async {
@@ -308,20 +330,26 @@ class AppController {
     if (res.isError) {
       return;
     }
-    final realTunEnable = _ref.read(realTunEnableProvider);
-    final realPatchConfig = patchConfig.copyWith.tun(enable: realTunEnable);
-    final params = await globalState.getSetupParams(
-      pathConfig: realPatchConfig,
-    );
-    final message = await clashCore.setupConfig(params);
-    lastProfileModified = await _ref.read(
-      currentProfileProvider.select(
-        (state) => state?.profileLastModified,
-      ),
-    );
-    if (message.isNotEmpty) {
-      throw message;
-    }
+    return _configure(() async {
+      final candidate = _ref.read(patchClashConfigProvider);
+      final realTunEnable = _ref.read(realTunEnableProvider);
+      final realPatchConfig = candidate.copyWith.tun(enable: realTunEnable);
+      final params = await globalState.getSetupParams(
+        pathConfig: realPatchConfig,
+      );
+      final message = await clashCore.setupConfig(params);
+      if (message.isNotEmpty) {
+        if (message.contains('rollback failed')) await updateStatus(false);
+        throw message;
+      }
+      lastProfileModified = await _ref.read(
+        currentProfileProvider.select(
+          (state) => state?.profileLastModified,
+        ),
+      );
+      _acceptedConfig = candidate;
+      _ref.read(acceptedMixedPortProvider.notifier).state = candidate.mixedPort;
+    });
   }
 
   Future _applyProfile() async {

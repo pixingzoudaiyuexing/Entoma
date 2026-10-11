@@ -44,7 +44,8 @@ class _ClashContainerState extends ConsumerState<ClashManager>
     });
     ref.listenManual(updateParamsProvider, (prev, next) {
       if (prev != next) {
-        globalState.appController.updateClashConfigDebounce();
+        if (ref.read(initProvider))
+          globalState.appController.updateClashConfigDebounce();
       }
     });
 

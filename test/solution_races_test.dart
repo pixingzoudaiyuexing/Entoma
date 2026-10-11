@@ -45,6 +45,15 @@ class AbortObservingClient extends http.BaseClient {
   }
 }
 
+class ReadFailureVault extends MemoryVault {
+  bool failRead = true;
+  @override
+  Future<String?> readJournal() async {
+    if (failRead) throw StateError('temporarily locked keychain');
+    return super.readJournal();
+  }
+}
+
 void main() {
   test('logout while pre-send storage is blocked prevents the old POST',
       () async {
@@ -67,6 +76,60 @@ void main() {
     await cleared;
     await assertion;
     expect(posts, 0);
+  });
+
+  test(
+      'completion journal failure followed by logout preserves the unknown operation',
+      () async {
+    final vault = BlockingVault();
+    final session = SolutionSession(
+        SolutionApi(client: MockClient((r) async => accountResponse(r))),
+        vault);
+    await session.authenticate('fixture@example.com', 'fixture-password');
+    vault.writes = 0;
+    vault.failCompletion = true;
+    await expectLater(session.mutate('checkout:fixture', (_) async => true),
+        throwsA(isA<SolutionError>()));
+    vault.failCompletion = false;
+    await session.clear();
+    await session.authenticate('fixture@example.com', 'fixture-password');
+    expect(session.pendingMutations, contains('checkout:fixture'));
+  });
+
+  test('explicit logout cleans owned configuration even when the vault fails',
+      () async {
+    final vault = MemoryVault();
+    final session = SolutionSession(
+        SolutionApi(client: MockClient((r) async => accountResponse(r))),
+        vault);
+    await session.authenticate('fixture@example.com', 'fixture-password');
+    var cleanup = false;
+    session.onAccountChange = (next) async {
+      cleanup = next == null;
+    };
+    vault.failWrites = true;
+    await expectLater(session.clear(), throwsA(isA<SolutionError>()));
+    expect(cleanup, isTrue);
+    expect(session.authenticated, isFalse);
+  });
+
+  test('journal read failure cannot overwrite unknown operations during login',
+      () async {
+    final vault = ReadFailureVault()
+      ..journal = jsonEncode({
+        'fixture@example.com': ['order:create']
+      });
+    final session = SolutionSession(
+        SolutionApi(client: MockClient((r) async => accountResponse(r))),
+        vault);
+    await session.restore(removeLegacyCredentials: false);
+    await expectLater(
+        session.authenticate('fixture@example.com', 'fixture-password'),
+        throwsA(isA<SolutionError>()));
+    expect(vault.journal, contains('order:create'));
+    vault.failRead = false;
+    await session.authenticate('fixture@example.com', 'fixture-password');
+    expect(session.pendingMutations, contains('order:create'));
   });
 
   test('mutation context cannot send with a newer account token', () async {

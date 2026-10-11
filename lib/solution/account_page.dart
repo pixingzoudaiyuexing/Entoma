@@ -259,6 +259,13 @@ class _AccountPageState extends ConsumerState<SolutionAccountPage> {
             ],
           ),
           const Text('离线时仍可在连接与节点页面使用已保存的配置。'),
+          OutlinedButton(
+              onPressed: working
+                  ? null
+                  : () => act(() async {
+                        await globalState.appController.restartCore();
+                      }),
+              child: const Text('诊断：重新初始化代理核心')),
         ],
       );
     }

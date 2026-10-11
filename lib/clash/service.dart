@@ -33,6 +33,7 @@ class ClashService extends ClashHandlerInterface {
   _CoreSession? _active;
   Future<void>? _restarting;
   bool _destroyed = false;
+  bool get hasSession => _active != null && !_active!.closed;
 
   factory ClashService() => _instance ??= ClashService._internal();
   ClashService._internal() {
@@ -128,7 +129,7 @@ class ClashService extends ClashHandlerInterface {
           onDone: () {
             proofTimeout.cancel();
             if (owner == _active && owner != null) {
-              system.elevatedCoreActive = false;
+              _markDisconnected();
               _failPending();
             }
           },
@@ -137,6 +138,15 @@ class ClashService extends ClashHandlerInterface {
             socket.destroy();
           },
         );
+  }
+
+  void _markDisconnected() {
+    system.elevatedCoreActive = false;
+    _active?.closed = true;
+    _active = null;
+    if (!globalState.isInit) return;
+    globalState.appController.handleCoreDisconnected();
+    globalState.showNotifier('代理核心已断开，系统代理将恢复。请重试连接。');
   }
 
   void _failPending() {
@@ -192,8 +202,12 @@ class ClashService extends ClashHandlerInterface {
         session.process = await Process.start(appPath.corePath, [argument]);
       }
       session.process?.stdout.drain<void>();
-      session.process?.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-        if (line.startsWith('panic:')) commonPrint.log('Core stopped after a runtime panic');
+      session.process?.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        if (line.startsWith('panic:'))
+          commonPrint.log('Core stopped after a runtime panic');
         if (line.startsWith('core.') || line.startsWith('main.')) {
           commonPrint.log(line.split('(').first);
         }
@@ -203,8 +217,8 @@ class ClashService extends ClashHandlerInterface {
         session.authenticationTimeout?.cancel();
         if (!session.socket.isCompleted)
           session.socket.completeError(StateError('Core exited'));
-        system.elevatedCoreActive = false;
         system.elevatedCoreRequested = false;
+        _markDisconnected();
         _failPending();
       });
     } catch (_) {
