@@ -21,13 +21,13 @@ data object ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         flutterMethodChannel.setMethodCallHandler(null)
     }
 
-    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) = when (call.method) {
+    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result): Unit = when (call.method) {
         "startVpn" -> {
             val data = call.argument<String>("data")
             val options = Gson().fromJson(data, VpnOptions::class.java)
             val plugin = GlobalState.getCurrentVPNPlugin()
             if (plugin == null) result.success(false)
-            else plugin.handleStart(options) { started -> result.success(started) }
+            else { plugin.handleStart(options) { started -> result.success(started) }; Unit }
         }
 
         "stopVpn" -> {

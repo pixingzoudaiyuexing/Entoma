@@ -49,9 +49,24 @@ class _StartButtonState extends ConsumerState<StartButton>
     super.dispose();
   }
 
-  handleSwitchStart() {
-    isStart = !isStart;
-    updateController();
+  bool pending = false;
+  Future<void> handleSwitchStart() async {
+    if (pending) return;
+    setState(() { pending = true; });
+    try {
+      final target = !ref.read(runTimeProvider.notifier).isStart;
+      await globalState.appController.updateStatus(target);
+    } catch (_) {
+      globalState.showNotifier('连接未完成，请检查端口、订阅或系统权限后重试。');
+    } finally {
+      if (mounted) {
+        setState(() { pending = false; isStart = ref.read(runTimeProvider.notifier).isStart; });
+        updateController();
+      }
+    }
+  }
+
+  updateController();
     debouncer.call(
       FunctionTag.updateStatus,
       () {
