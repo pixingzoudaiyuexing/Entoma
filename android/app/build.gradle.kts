@@ -42,6 +42,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // The MVP bundles one matching Flutter/Go/JNI architecture.
+        ndk { abiFilters.add("arm64-v8a") }
     }
 
     signingConfigs {
