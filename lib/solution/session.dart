@@ -28,6 +28,7 @@ class NativeSessionVault implements SessionVault {
   final FlutterSecureStorage storage;
   final String key;
   final Duration readTimeout;
+  final Map<String, Future<String?>> _nativeReads = {};
   NativeSessionVault(
     String origin, {
     FlutterSecureStorage? storage,
@@ -36,14 +37,32 @@ class NativeSessionVault implements SessionVault {
             const FlutterSecureStorage(mOptions: EntomaMacVaultOptions()),
         key = 'entoma.session.v1.$origin';
   @override
-  Future<String?> read() => storage.read(key: key).timeout(readTimeout);
+  Future<String?> read() => _read(key);
+  Future<String?> _read(String itemKey) {
+    // A Dart timeout does not cancel SecItemCopyMatching. Reuse that native
+    // operation until it settles instead of adding more calls to its serial queue.
+    final pending = _nativeReads.putIfAbsent(itemKey, () {
+      final operation = storage.read(key: itemKey);
+      void release() {
+        if (identical(_nativeReads[itemKey], operation)) {
+          _nativeReads.remove(itemKey);
+        }
+      }
+
+      operation.then((_) => release(), onError: (Object _, StackTrace __) {
+        release();
+      });
+      return operation;
+    });
+    return pending.timeout(readTimeout);
+  }
+
   @override
   Future<void> write(String? value) => value == null
       ? storage.delete(key: key)
       : storage.write(key: key, value: value);
   @override
-  Future<String?> readJournal() =>
-      storage.read(key: '$key.pending').timeout(readTimeout);
+  Future<String?> readJournal() => _read('$key.pending');
   @override
   Future<void> writeJournal(String value) =>
       storage.write(key: '$key.pending', value: value);
@@ -180,6 +199,7 @@ class SolutionSession extends ChangeNotifier {
         }
       }
       storageRestored = true;
+      notice = null;
     } catch (_) {
       notice = const SolutionError('STORAGE_ERROR').toString();
     } finally {

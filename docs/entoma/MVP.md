@@ -31,6 +31,8 @@ service was changed. V2Board retains all business authority and callback ownersh
   storage. macOS uses the ordinary Keychain without sharing/provisioning.
   Native reads have a 10-second deadline, so a pending OS authorization cannot
   indefinitely block local core initialization. An unreadable journal fails closed.
+  Retries reuse an unfinished native read rather than enqueue duplicate Keychain
+  operations. Completed reads are not cached; successful restore clears stale errors.
 - Account, wallet, current plan, traffic and expiry are read separately. Only a
   confirmed authentication failure clears the session. No client JWT interpretation.
 - Subscription content uses `Clash.Meta/...` UA (verified against STG); `mihomo/...`

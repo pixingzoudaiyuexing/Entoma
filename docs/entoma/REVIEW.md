@@ -35,8 +35,9 @@ is retained on API or configuration failures.
 
 ## Current evidence classes
 
-- Flutter: 70 automated tests passed locally, including account, parser, session
-  races and real payment-page widget tests. Static analysis produced zero errors;
+- Flutter: 73 automated tests passed locally, including account, parser, session
+  races, timed-out native read single-flight/recovery, stale storage notice and
+  real payment-page widget tests. Static analysis produced zero errors;
   warning/info diagnostics remain in legacy app and new style-only lines. Analysis
   flags tolerate warnings/info and do not silently convert them into clean lint.
 - Go: core tests passed with `CGO_ENABLED=0 go test -tags=with_gvisor ./...`.

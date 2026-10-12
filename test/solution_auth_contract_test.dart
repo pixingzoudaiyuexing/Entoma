@@ -15,6 +15,68 @@ import 'solution_test.dart' show MemoryVault, accountResponse, failure, success;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('timed out native reads share the still pending operation', () async {
+    final blocked = Completer<dynamic>();
+    var nativeReads = 0;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel =
+        MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'read') {
+        nativeReads++;
+        return nativeReads == 1 ? blocked.future : '{"fresh":[]}';
+      }
+      return null;
+    });
+    addTearDown(() {
+      if (!blocked.isCompleted) blocked.complete('{}');
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    final vault = NativeSessionVault(solutionOrigin,
+        readTimeout: const Duration(milliseconds: 20));
+    await expectLater(vault.readJournal(), throwsA(isA<TimeoutException>()));
+    final retry = vault.readJournal();
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    expect(nativeReads, 1);
+    blocked.complete('{"restored":[]}');
+    expect(await retry, '{"restored":[]}');
+    expect(await vault.readJournal(), '{"fresh":[]}');
+    expect(nativeReads, 2);
+  });
+  test('successful empty restore clears an earlier storage error', () async {
+    final vault = MemoryVault();
+    final api =
+        SolutionApi(client: MockClient((r) async => accountResponse(r)));
+    addTearDown(api.close);
+    final session = SolutionSession(api, vault)
+      ..notice = const SolutionError('STORAGE_ERROR').toString();
+    await session.restore(removeLegacyCredentials: false);
+    expect(session.initialized, isTrue);
+    expect(session.authenticated, isFalse);
+    expect(session.notice, isNull);
+  });
+  test('late native read failure does not poison the next retry', () async {
+    final pending = Completer<dynamic>();
+    var reads = 0;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel =
+        MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+    messenger.setMockMethodCallHandler(channel, (_) async {
+      reads++;
+      if (reads == 1) return await pending.future;
+      return '{}';
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final vault = NativeSessionVault(solutionOrigin,
+        readTimeout: const Duration(milliseconds: 5));
+    await expectLater(vault.readJournal(), throwsA(isA<TimeoutException>()));
+    pending.completeError(PlatformException(code: 'fixture-denied'));
+    await Future<void>.delayed(Duration.zero);
+    expect(await vault.readJournal(), '{}');
+    expect(reads, 2);
+  });
   test('blocked native Keychain read fails closed and releases startup',
       () async {
     final blocked = Completer<dynamic>();
