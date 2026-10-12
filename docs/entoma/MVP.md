@@ -121,7 +121,10 @@ may need the user's system authorization to read an older Keychain item. Native
 sampling confirmed a synchronous Keychain decrypt wait on this Mac. The read
 deadline releases startup but cannot cancel that native operation or approve the
 system dialog; continued account operations can still require manual authorization.
-No ACL, Keychain contents, TLS policy or OS credential was bypassed or changed.
+The fixed `96eb422` bundle passed login, secure cold-start restoration, logout
+cleanup and a second cold start remaining logged out after Owner authorization.
+Login/logout accessed the client's own session and pending-journal entries through
+the normal secure-storage API. No ACL change or authorization bypass was used.
 
 See `REVIEW.md` for the final review surface, evidence classification and remaining
 release gates, and `evidence/stg-core-smoke.json` for sanitized live core evidence.

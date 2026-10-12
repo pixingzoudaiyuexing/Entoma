@@ -57,12 +57,20 @@ is retained on API or configuration failures.
   probe and selected-node chain assertion supersede those records.
 - macOS GUI: real login, subscription nodes and measured delays, native dashboard,
   connection, HTTP 200/TLS verification through the owned mixed listener, then
-  stop and listener release. A later rebuilt ad-hoc bundle's Keychain restore was
-  blocked in `SecItemCopyMatching`; deadline regression is tested, but renewed
-  system authorization and final GUI session-persistence acceptance remain pending.
+  stop and listener release. The fixed `96eb422` bundle passed real login and
+  current account/plan/wallet/traffic readback after Owner's system authorization.
+  A full exit and cold restart restored login without credentials; direct API
+  failure preserved that session and cached nodes, and account refresh succeeded
+  after connection. Logout from a running core removed the session Keychain item
+  and all owned configuration files, preserved the pending journal and released
+  the listener. Another cold restart remained logged out. This Mac had zero other
+  profile files, so runtime preservation of another profile is not asserted.
+  Status/count/hash-only evidence is in `evidence/macos-session-smoke.json`.
 - Builds: macOS universal and Android arm64 builds succeeded locally; Windows x64
-  installer succeeded on GitHub CI. The final report binds final packages and CI
-  to the delivery SHA. Builds do not prove Android/Windows device acceptance.
+  installer succeeded on GitHub CI. All three jobs passed for runtime commit
+  `96eb422bdec7168ece2482d774428bee631b57cf` in run `38201136230`.
+  Later documentation/evidence commits do not change these runtime binaries.
+  Builds do not prove Android/Windows device acceptance.
 
 No live register/reset/email sending, ticket notification, order creation, payment
 transaction/provider callback, refund or commission transfer is claimed. Those
@@ -97,8 +105,9 @@ a code finding or a substitute for formal review. No permission bypass was used.
 
 ## Release conditions
 
-- Owner macOS Keychain system authorization for the rebuilt test bundle; stable
-  distribution signing/notarization and Windows signing, Android release keys.
+- Stable distribution signing/notarization and Windows signing, Android release
+  keys. Owner's Keychain authorization and session lifecycle passed on the fixed
+  macOS test bundle; future ad-hoc rebuilds can require fresh system authorization.
 - Android/Windows devices, plus macOS/Windows TUN and native system proxy QA.
 - Approved disposable billing flow and payment-provider callback environment;
   actual email lifecycle/antiBot challenge condition when applicable.
