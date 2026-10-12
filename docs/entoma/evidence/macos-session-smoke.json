@@ -21,7 +21,7 @@
   "journalMetadataExistsAfterLogout": true,
   "ownedFilesAfterLogout": 0,
   "nonOwnedProfilesBeforeCount": 0,
-  "existingNonOwnedProfilesUnchanged": true,
+  "existingNonOwnedProfilesUnchanged": null,
   "logoutListenerReleased": true,
   "coldRestartAfterLogoutRemainedLoggedOut": true,
   "systemProxyEnabled": false,
@@ -38,5 +38,6 @@
   },
   "formalIndependentReview": "PENDING",
   "sessionItemAbsentAfterFinalRestart": true,
-  "journalItemPresentAfterFinalRestart": true
+  "journalItemPresentAfterFinalRestart": true,
+  "nonOwnedProfilePreservationTest": "NOT_TESTED: no other profile files in this runtime"
 }

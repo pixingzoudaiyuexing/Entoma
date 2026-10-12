@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-10-11T18:33:44.458Z",
-  "applicationBuildSha": "20c279f1538859bb69f9de95d415c7ac8395ae2f",
-  "coreSha256": "f38a95118b7c76b29313cf077928707915eff185b8a95688ee1281bab2dde7eb",
+  "capturedAt": "2026-10-12T11:54:29.029000+08:00",
+  "applicationBuildSha": "96eb422bdec7168ece2482d774428bee631b57cf",
+  "coreSha256": "f8cb3aa1de08451338226dece7a677e9cc4eaabc0971ba82c97262bcf8889cdc",
   "exitCode": 0,
   "evidence": {
     "apiTransport": "existing-loopback-proxy",
@@ -58,5 +58,9 @@
     "listenerReleased": true,
     "systemProxyChanged": false,
     "tunEnabled": false
+  },
+  "directApiReplay": {
+    "login": true,
+    "me": "NETWORK_ERROR"
   }
 }
