@@ -4,10 +4,12 @@ package main
 
 import (
 	"bufio"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 )
 
 var conn net.Conn
@@ -36,7 +38,12 @@ func send(data []byte) {
 }
 
 func startServer(arg string) {
-
+	endpoint, secret, ok := strings.Cut(arg, "|")
+	decoded, decodeErr := hex.DecodeString(secret)
+	if !ok || decodeErr != nil || len(decoded) != 32 {
+		return
+	}
+	arg = endpoint
 	_, err := strconv.Atoi(arg)
 
 	if err != nil {
@@ -52,6 +59,10 @@ func startServer(arg string) {
 		_ = conn.Close()
 	}(conn)
 
+	proof, _ := json.Marshal(map[string]string{"auth": secret})
+	if _, err = conn.Write(append(proof, '\n')); err != nil {
+		return
+	}
 	reader := bufio.NewReader(conn)
 
 	for {

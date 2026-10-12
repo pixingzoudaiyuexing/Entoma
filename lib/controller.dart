@@ -23,6 +23,15 @@ import 'views/profiles/override_profile.dart';
 
 class AppController {
   int? lastProfileModified;
+  ClashConfig? _acceptedConfig;
+  bool _connecting = false;
+  Future<void> _configurationQueue = Future.value();
+  Future<T> _configure<T>(Future<T> Function() action) {
+    final operation =
+        _configurationQueue.catchError((_) {}).then((_) => action());
+    _configurationQueue = operation.then<void>((_) {}, onError: (_) {});
+    return operation;
+  }
 
   final BuildContext context;
   final WidgetRef _ref;
@@ -85,21 +94,20 @@ class AppController {
 
   updateStatus(bool isStart) async {
     if (isStart) {
-      await globalState.handleStart([
-        updateRunTime,
-        updateTraffic,
-      ]);
-      final currentLastModified =
-          await _ref.read(currentProfileProvider)?.profileLastModified;
-      if (currentLastModified == null || lastProfileModified == null) {
-        addCheckIpNumDebounce();
-        return;
+      if (system.isDesktop && clashService?.hasSession != true) {
+        await restartCore();
       }
-      if (currentLastModified <= (lastProfileModified ?? 0)) {
-        addCheckIpNumDebounce();
-        return;
+      final selected = _ref.read(currentProfileProvider);
+      if (selected == null || !await selected.check())
+        throw StateError('请先刷新订阅或添加有效配置');
+      _connecting = true;
+      try {
+        await applyProfile(silence: true);
+        await globalState.handleStart([updateRunTime, updateTraffic]);
+      } finally {
+        _connecting = false;
       }
-      applyProfileDebounce();
+      addCheckIpNumDebounce();
     } else {
       await globalState.handleStop();
       await clashCore.resetTraffic();
@@ -108,6 +116,14 @@ class AppController {
       _ref.read(runTimeProvider.notifier).value = null;
       addCheckIpNumDebounce();
     }
+  }
+
+  void handleCoreDisconnected() {
+    globalState.startTime = null;
+    globalState.stopUpdateTasks();
+    _ref.read(runTimeProvider.notifier).value = null;
+    _ref.read(realTunEnableProvider.notifier).value = false;
+    _ref.read(trafficsProvider.notifier).clear();
   }
 
   updateRunTime() {
@@ -134,18 +150,21 @@ class AppController {
     _ref.read(currentProfileIdProvider.notifier).value = profile.id;
   }
 
-  deleteProfile(String id) async {
+  Future<void> deleteProfile(String id) async {
+    if (_ref.read(currentProfileIdProvider) == id &&
+        !_ref.read(profilesProvider).any((profile) => profile.id != id)) {
+      await updateStatus(false);
+    }
+    await clearEffect(id);
     _ref.read(profilesProvider.notifier).deleteProfileById(id);
-    clearEffect(id);
-    if (globalState.config.currentProfileId == id) {
-      final profiles = globalState.config.profiles;
+    if (_ref.read(currentProfileIdProvider) == id) {
+      final profiles = _ref.read(profilesProvider);
       final currentProfileId = _ref.read(currentProfileIdProvider.notifier);
       if (profiles.isNotEmpty) {
         final updateId = profiles.first.id;
         currentProfileId.value = updateId;
       } else {
         currentProfileId.value = null;
-        updateStatus(false);
       }
     }
   }
@@ -257,22 +276,41 @@ class AppController {
   }
 
   Future<void> _updateClashConfig() async {
-    final updateParams = _ref.read(updateParamsProvider);
-    final res = await _requestAdmin(updateParams.tun.enable);
+    final res =
+        await _requestAdmin(_ref.read(patchClashConfigProvider).tun.enable);
     if (res.isError) {
       return;
     }
-    final realTunEnable = _ref.read(realTunEnableProvider);
-    final message = await clashCore.updateConfig(
-      updateParams.copyWith.tun(
-        enable: realTunEnable,
-      ),
-    );
-    if (message.isNotEmpty) throw message;
+    return _configure(() async {
+      final candidate = _ref.read(patchClashConfigProvider);
+      final updateParams = _ref.read(updateParamsProvider);
+      final realTunEnable = _ref.read(realTunEnableProvider);
+      final message = await clashCore.updateConfig(
+        updateParams.copyWith.tun(
+          enable: realTunEnable,
+        ),
+      );
+      if (message.isNotEmpty) {
+        final previous = _acceptedConfig;
+        if (previous != null &&
+            _ref.read(patchClashConfigProvider) == candidate)
+          _ref
+              .read(patchClashConfigProvider.notifier)
+              .updateState((_) => previous);
+        if (message.contains('rollback failed')) await updateStatus(false);
+        throw message;
+      }
+      _acceptedConfig = candidate;
+      _ref.read(acceptedMixedPortProvider.notifier).state =
+          _acceptedConfig!.mixedPort;
+    });
   }
 
   Future<Result<bool>> _requestAdmin(bool enableTun) async {
     final realTunEnable = _ref.read(realTunEnableProvider);
+    if (enableTun && !globalState.isStart && !_connecting) {
+      return Result.success(false);
+    }
     if (enableTun != realTunEnable && realTunEnable == false) {
       final code = await system.authorizeCore();
       switch (code) {
@@ -305,20 +343,26 @@ class AppController {
     if (res.isError) {
       return;
     }
-    final realTunEnable = _ref.read(realTunEnableProvider);
-    final realPatchConfig = patchConfig.copyWith.tun(enable: realTunEnable);
-    final params = await globalState.getSetupParams(
-      pathConfig: realPatchConfig,
-    );
-    final message = await clashCore.setupConfig(params);
-    lastProfileModified = await _ref.read(
-      currentProfileProvider.select(
-        (state) => state?.profileLastModified,
-      ),
-    );
-    if (message.isNotEmpty) {
-      throw message;
-    }
+    return _configure(() async {
+      final candidate = _ref.read(patchClashConfigProvider);
+      final realTunEnable = _ref.read(realTunEnableProvider);
+      final realPatchConfig = candidate.copyWith.tun(enable: realTunEnable);
+      final params = await globalState.getSetupParams(
+        pathConfig: realPatchConfig,
+      );
+      final message = await clashCore.setupConfig(params);
+      if (message.isNotEmpty) {
+        if (message.contains('rollback failed')) await updateStatus(false);
+        throw message;
+      }
+      lastProfileModified = await _ref.read(
+        currentProfileProvider.select(
+          (state) => state?.profileLastModified,
+        ),
+      );
+      _acceptedConfig = candidate;
+      _ref.read(acceptedMixedPortProvider.notifier).state = candidate.mixedPort;
+    });
   }
 
   Future _applyProfile() async {
@@ -470,8 +514,9 @@ class AppController {
   checkUpdateResultHandle({
     Map<String, dynamic>? data,
     bool handleError = false,
+    bool manual = false,
   }) async {
-    if (globalState.isPre) {
+    if (globalState.isPre && !manual) {
       return;
     }
     if (data != null) {
@@ -667,13 +712,15 @@ class AppController {
     try {
       // 先删除所有现有的URL订阅（非文件类型的订阅）
       final profiles = globalState.config.profiles;
-      final urlProfiles = profiles.where((profile) => profile.type == ProfileType.url).toList();
-      
+      final urlProfiles =
+          profiles.where((profile) => profile.type == ProfileType.url).toList();
+
       for (final profile in urlProfiles) {
-        commonPrint.log('Removing existing URL profile: ${profile.label ?? profile.id}');
-        deleteProfile(profile.id);
+        commonPrint.log(
+            'Removing existing URL profile: ${profile.label ?? profile.id}');
+        await deleteProfile(profile.id);
       }
-      
+
       // 然后添加新的订阅
       final profile = await Profile.normal(
         url: url,
@@ -797,19 +844,19 @@ class AppController {
     };
   }
 
-  clearEffect(String profileId) async {
+  Future<void> clearEffect(String profileId) async {
     final profilePath = await appPath.getProfilePath(profileId);
     final providersDirPath = await appPath.getProvidersDirPath(profileId);
     return await Isolate.run(() async {
       final profileFile = File(profilePath);
       final isExists = await profileFile.exists();
       if (isExists) {
-        profileFile.delete(recursive: true);
+        await profileFile.delete(recursive: true);
       }
-      final providersFileDir = File(providersDirPath);
+      final providersFileDir = Directory(providersDirPath);
       final providersFileIsExists = await providersFileDir.exists();
       if (providersFileIsExists) {
-        providersFileDir.delete(recursive: true);
+        await providersFileDir.delete(recursive: true);
       }
     });
   }

@@ -1,0 +1,92 @@
+name: Entoma MVP artifacts
+on:
+  push:
+    branches: [codex/entoma-solution-mvp]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: entoma-mvp-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            os: macos-latest
+          - platform: windows
+            os: windows-latest
+          - platform: android
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.26.4'
+          cache-dependency-path: core/go.sum
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        if: matrix.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+      - name: Bootstrap pinned dependencies
+        run: bash tool/bootstrap.sh
+      - name: Analyze application and test
+        run: |
+          flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
+          flutter test --no-pub test
+          (cd core && CGO_ENABLED=0 go test -tags=with_gvisor ./...)
+      - uses: android-actions/setup-android@00854ea68c109d98c75d956347303bf7c45b0277
+        if: matrix.platform == 'android'
+        with:
+          log-accepted-android-sdk-licenses: false
+          cmdline-tools-version: 13114758
+          packages: platform-tools
+      - name: Android build prerequisites
+        if: matrix.platform == 'android'
+        run: sdkmanager 'platforms;android-36' 'ndk;29.0.14206865' 'cmake;3.22.1'
+      - name: Build application with the bundled core
+        env:
+          ENTOMA_PLATFORM: ${{ matrix.platform }}
+        run: bash tool/build_mvp.sh "$ENTOMA_PLATFORM"
+      - name: Package macOS test installer
+        if: matrix.platform == 'macos'
+        run: |
+          mkdir -p dist
+          pkgbuild --component build/macos/Build/Products/Release/Entoma.app --install-location /Applications --identifier com.entoma.client --version 0.1.0 dist/Entoma-0.1.0-macos.pkg
+          ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/Entoma.app dist/Entoma-0.1.0-macos.zip
+      - name: Package Windows test installer
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $compiler)) { choco install innosetup --yes --no-progress }
+          & $compiler packaging/windows.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dist/Entoma-0.1.0-windows-x64.zip
+      - name: Collect Android test package
+        if: matrix.platform == 'android'
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/Entoma-0.1.0-android-arm64-test.apk
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: entoma-mvp-${{ matrix.platform }}
+          path: dist/
+          if-no-files-found: error

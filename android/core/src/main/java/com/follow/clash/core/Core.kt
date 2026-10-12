@@ -8,7 +8,7 @@ data object Core {
     private external fun startTun(
         fd: Int,
         cb: TunInterface
-    )
+    ): Boolean
 
     private fun parseInetSocketAddress(address: String): InetSocketAddress {
         val url = URL("https://$address")
@@ -20,8 +20,8 @@ data object Core {
         fd: Int,
         protect: (Int) -> Boolean,
         resolverProcess: (protocol: Int, source: InetSocketAddress, target: InetSocketAddress, uid: Int) -> String
-    ) {
-        startTun(fd, object : TunInterface {
+    ): Boolean {
+        return startTun(fd, object : TunInterface {
             override fun protect(fd: Int) {
                 protect(fd)
             }

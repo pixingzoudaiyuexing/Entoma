@@ -10,7 +10,6 @@ class FlClashHttpOverrides extends HttpOverrides {
     }
     final port = globalState.config.patchClashConfig.mixedPort;
     final isStart = globalState.appState.runTime != null;
-    commonPrint.log("find $url proxy:$isStart");
     if (!isStart) return "DIRECT";
     return "PROXY localhost:$port";
   }
@@ -18,7 +17,6 @@ class FlClashHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
     final client = super.createHttpClient(context);
-    client.badCertificateCallback = (_, __, ___) => true;
     client.findProxy = handleFindProxy;
     return client;
   }

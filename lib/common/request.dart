@@ -74,7 +74,7 @@ class Request {
         responseType: ResponseType.json,
       ),
     );
-    if (response.statusCode != 200) return null;
+    if (response.statusCode != 200) throw StateError('Release lookup failed');
     final data = response.data as Map<String, dynamic>;
     final remoteVersion = data['tag_name'];
     final version = globalState.packageInfo.version;

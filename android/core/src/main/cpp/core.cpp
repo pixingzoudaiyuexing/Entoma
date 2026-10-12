@@ -4,10 +4,12 @@
 #include "libclash.h"
 
 extern "C"
-JNIEXPORT void JNICALL
+JNIEXPORT jboolean JNICALL
 Java_com_follow_clash_core_Core_startTun(JNIEnv *env, jobject, const jint fd, jobject cb) {
     const auto interface = new_global(cb);
-    startTUN(fd, interface);
+    if (interface == nullptr) return JNI_FALSE;
+    // Go owns this GlobalRef on every return path, including a failed start.
+    return startTUN(fd, interface) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C"

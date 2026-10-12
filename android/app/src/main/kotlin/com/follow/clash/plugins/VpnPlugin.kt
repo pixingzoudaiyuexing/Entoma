@@ -44,28 +44,18 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var scope: CoroutineScope
     private var lastStartForegroundParams: StartForegroundParams? = null
     private var timerJob: Job? = null
+    private var startDeadline: Job? = null
+    private var startCompletion: ((Boolean) -> Unit)? = null
+    private var startGeneration = 0
+    private var startPending = false
     private val uidPageNameMap = mutableMapOf<Int, String>()
 
     private val connectivity by lazy {
         FlClashApplication.getAppContext().getSystemService<ConnectivityManager>()
     }
 
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            isBind = true
-            flClashService = when (service) {
-                is FlClashVpnService.LocalBinder -> service.getService()
-                is FlClashService.LocalBinder -> service.getService()
-                else -> throw Exception("invalid binder")
-            }
-            handleStartService()
-        }
+    private var pendingConnection: ServiceConnection? = null
 
-        override fun onServiceDisconnected(arg: ComponentName) {
-            isBind = false
-            flClashService = null
-        }
-    }
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         scope = CoroutineScope(Dispatchers.Default)
@@ -85,7 +75,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         when (call.method) {
             "start" -> {
                 val data = call.argument<String>("data")
-                result.success(handleStart(Gson().fromJson(data, VpnOptions::class.java)))
+                handleStart(Gson().fromJson(data, VpnOptions::class.java)) { started -> result.success(started) }
             }
 
             "stop" -> {
@@ -99,7 +89,21 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    fun handleStart(options: VpnOptions): Boolean {
+    fun handleStart(options: VpnOptions, completion: ((Boolean) -> Unit)? = null): Boolean {
+        if (GlobalState.runState.value == RunState.START && options == this.options) {
+            completion?.invoke(true)
+            return true
+        }
+        handleStop()
+        val generation = ++startGeneration
+        startPending = true
+        startCompletion = completion
+        startDeadline = CoroutineScope(Dispatchers.Main).launch {
+            delay(30000)
+            if (generation != startGeneration || !startPending) return@launch
+            handleStop()
+            finishStart(false)
+        }
         onUpdateNetwork();
         if (options.enable != this.options?.enable) {
             this.flClashService = null
@@ -112,9 +116,35 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         return true
     }
 
+    private fun finishStart(started: Boolean) {
+        startPending = false
+        startDeadline?.cancel()
+        startDeadline = null
+        val callback = startCompletion
+        startCompletion = null
+        if (callback != null) CoroutineScope(Dispatchers.Main).launch { callback(started) }
+    }
+
+    private fun cancelPendingStart() {
+        ++startGeneration
+        finishStart(false)
+        unbindService()
+    }
+
+    private fun unbindService() {
+        val previous = pendingConnection
+        pendingConnection = null
+        if (previous != null) {
+            try { FlClashApplication.getAppContext().unbindService(previous) } catch (_: Exception) {}
+        }
+        isBind = false
+        flClashService = null
+    }
+
     private fun handleStartVpn() {
+        val generation = startGeneration
         GlobalState.getCurrentAppPlugin()?.requestVpnPermission {
-            handleStartService()
+            if (generation == startGeneration && startPending) handleStartService()
         }
     }
 
@@ -209,20 +239,31 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun handleStartService() {
+        if (!startPending) return
         if (flClashService == null) {
             bindService()
             return
         }
         GlobalState.runLock.withLock {
-            if (GlobalState.runState.value == RunState.START) return
-            GlobalState.runState.value = RunState.START
+            if (GlobalState.runState.value == RunState.START) { finishStart(true); return }
+            try {
             val fd = flClashService?.start(options!!)
-            Core.startTun(
+            if (options?.enable == true && (fd == null || fd <= 0)) throw IllegalStateException("VPN interface unavailable")
+            val started = Core.startTun(
                 fd = fd ?: 0,
                 protect = this::protect,
                 resolverProcess = this::resolverProcess,
             )
+            if (!started) throw IllegalStateException("TUN start failed")
+            GlobalState.runState.value = RunState.START
             startForegroundJob()
+            finishStart(true)
+            } catch (_: Exception) {
+                flClashService?.stop()
+                Core.stopTun()
+                GlobalState.runState.value = RunState.STOP
+                finishStart(false)
+            }
         }
     }
 
@@ -253,10 +294,13 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     fun handleStop() {
+        val activeService = flClashService
+        cancelPendingStart()
+        if (GlobalState.runState.value == RunState.STOP) { activeService?.stop(); return }
         GlobalState.runLock.withLock {
             if (GlobalState.runState.value == RunState.STOP) return
             GlobalState.runState.value = RunState.STOP
-            flClashService?.stop()
+            activeService?.stop()
             stopForegroundJob()
             Core.stopTun()
             GlobalState.handleTryDestroy()
@@ -264,13 +308,37 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun bindService() {
-        if (isBind) {
-            FlClashApplication.getAppContext().unbindService(connection)
+        unbindService()
+        val generation = startGeneration
+        val expectsVpn = options?.enable == true
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(className: ComponentName, binder: IBinder) {
+                if (generation != startGeneration || !startPending || pendingConnection !== this) {
+                    try { FlClashApplication.getAppContext().unbindService(this) } catch (_: Exception) {}
+                    return
+                }
+                val bound = when (binder) {
+                    is FlClashVpnService.LocalBinder -> if (expectsVpn) binder.getService() else null
+                    is FlClashService.LocalBinder -> if (!expectsVpn) binder.getService() else null
+                    else -> null
+                }
+                if (bound == null) { finishStart(false); unbindService(); return }
+                isBind = true
+                flClashService = bound
+                handleStartService()
+            }
+            override fun onServiceDisconnected(className: ComponentName) {
+                if (generation == startGeneration && pendingConnection === this) {
+                    handleStop()
+                }
+            }
         }
-        val intent = when (options?.enable == true) {
-            true -> Intent(FlClashApplication.getAppContext(), FlClashVpnService::class.java)
-            false -> Intent(FlClashApplication.getAppContext(), FlClashService::class.java)
+        pendingConnection = connection
+        val intent = if (expectsVpn) Intent(FlClashApplication.getAppContext(), FlClashVpnService::class.java)
+                     else Intent(FlClashApplication.getAppContext(), FlClashService::class.java)
+        if (!FlClashApplication.getAppContext().bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+            finishStart(false)
+            unbindService()
         }
-        FlClashApplication.getAppContext().bindService(intent, connection, Context.BIND_AUTO_CREATE)
     }
 }

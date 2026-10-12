@@ -1,0 +1,83 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fl_clash/manager/proxy_manager.dart';
+import 'package:fl_clash/models/models.dart' show ProxyState;
+import 'package:fl_clash/providers/state.dart';
+import 'package:proxy/proxy.dart';
+import 'package:proxy/proxy_platform_interface.dart';
+
+class FakeNativeProxy extends ProxyPlatform {
+  Object? startError;
+  bool? startResult = true;
+  bool? stopResult = true;
+  Completer<bool?>? startBlock;
+  final entered = Completer<void>();
+  int stops = 0;
+  @override
+  Future<bool?> startProxy(int port, List<String> bypassDomain) async {
+    if (!entered.isCompleted) entered.complete();
+    if (startError != null) throw startError!;
+    return startBlock != null ? await startBlock!.future : startResult;
+  }
+
+  @override
+  Future<bool?> stopProxy() async {
+    stops++;
+    return stopResult;
+  }
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late ProxyPlatform previous;
+  setUp(() => previous = ProxyPlatform.instance);
+  tearDown(() => ProxyPlatform.instance = previous);
+  for (final platform in ['macos', 'windows']) {
+    for (final outcome in ['success', 'false', 'null', 'throw']) {
+      test('$platform native $outcome start preserves restoration retries',
+          () async {
+        final native = FakeNativeProxy();
+        ProxyPlatform.instance = native;
+        final proxy = Proxy.forPlatform(platform);
+        if (outcome == 'throw') native.startError = StateError('partial start');
+        if (outcome == 'false') native.startResult = false;
+        if (outcome == 'null') native.startResult = null;
+        if (outcome == 'throw') {
+          await expectLater(proxy.startProxy(7890), throwsStateError);
+        } else {
+          expect(await proxy.startProxy(7890), native.startResult);
+        }
+        native.stopResult = false;
+        expect(await proxy.stopProxy(), false);
+        native.stopResult = true;
+        expect(await proxy.stopProxy(), true);
+        expect(native.stops, 2);
+        // A repeated native stop is safe because native snapshot ownership is
+        // authoritative. Dart never reports ownership after failed starts.
+        expect(await proxy.stopProxy(), true);
+        expect(native.stops, 3);
+      });
+    }
+  }
+  testWidgets(
+      'dispose waits for a late native start then restores its snapshot',
+      (tester) async {
+    final native = FakeNativeProxy()..startBlock = Completer<bool?>();
+    ProxyPlatform.instance = native;
+    await tester.pumpWidget(ProviderScope(overrides: [
+      proxyStateProvider.overrideWithValue(const ProxyState(
+          isStart: true, systemProxy: true, bassDomain: [], port: 7890))
+    ], child: const MaterialApp(home: ProxyManager(child: SizedBox()))));
+    await tester.pump();
+    await native.entered.future;
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(native.stops, 0);
+    native.startBlock!.complete(true);
+    await tester.pumpAndSettle();
+    expect(native.stops, 1);
+    expect(tester.takeException(), isNull);
+  }, skip: !Platform.isMacOS && !Platform.isWindows);
+}

@@ -1,0 +1,50 @@
+diff --git a/listener/listener.go b/listener/listener.go
+index 7d751c92..1dbd934b 100644
+--- a/listener/listener.go
++++ b/listener/listener.go
+@@ -439,11 +439,10 @@ func ReCreateTProxy(port int, tunnel C.Tunnel) {
+ 	log.Infoln("TProxy server listening at: %s", tproxyListener.Address())
+ }
+ 
+-func ReCreateMixed(port int, tunnel C.Tunnel) {
++func ReCreateMixed(port int, tunnel C.Tunnel) (err error) {
+ 	mixedMux.Lock()
+ 	defer mixedMux.Unlock()
+ 
+-	var err error
+ 	defer func() {
+ 		if err != nil {
+ 			log.Errorln("Start Mixed(http+socks) server error: %s", err.Error())
+@@ -488,13 +487,15 @@ func ReCreateMixed(port int, tunnel C.Tunnel) {
+ 	mixedUDPLister, err = socks.NewUDP(addr, tunnel)
+ 	if err != nil {
+ 		mixedListener.Close()
++		mixedListener = nil
+ 		return
+ 	}
+ 
+ 	log.Infoln("Mixed(http+socks) proxy listening at: %s", mixedListener.Address())
++	return nil
+ }
+ 
+-func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {
++func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) (err error) {
+ 	tunConf.Sort()
+ 
+ 	tunMux.Lock()
+@@ -503,7 +504,6 @@ func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {
+ 		tunMux.Unlock()
+ 	}()
+ 
+-	var err error
+ 	defer func() {
+ 		if err != nil {
+ 			log.Errorln("Start TUN listening error: %s", err.Error())
+@@ -529,6 +529,7 @@ func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {
+ 	tunLister = lister
+ 
+ 	log.Infoln("[TUN] Tun adapter listening at: %s", tunLister.Address())
++	return nil
+ }
+ 
+ func PatchTunnel(tunnels []LC.Tunnel, tunnel C.Tunnel) {

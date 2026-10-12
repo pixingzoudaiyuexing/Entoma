@@ -72,12 +72,6 @@ class UpdateService {
     
     (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
       final client = HttpClient();
-      if (kDebugMode) {
-        client.badCertificateCallback = (X509Certificate cert, String host, int port) {
-          _logger.debug('忽略SSL证书验证: $host:$port');
-          return true;
-        };
-      }
       return client;
     };
     

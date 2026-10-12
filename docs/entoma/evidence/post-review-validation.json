@@ -1,0 +1,170 @@
+{
+  "baseline": "09fe23ec5e7a183fe2376f3e4150f1965fdcaac1",
+  "candidate": "1b764e93d260a2e740949dc99d3908a6208fe652",
+  "implementationCommit": "3c65a423c7bf51105d9f3acffe7cbf1bcf52694e",
+  "deltaSha256": "3013e05fc8f78d529d973b1a703204da113db102f37aeba5860011050cfca3f6",
+  "localFlutterTests": {
+    "passed": 120,
+    "added": 47,
+    "command": "flutter test --no-pub test"
+  },
+  "localAnalysis": {
+    "errors": 0,
+    "warnings": 22,
+    "info": 95
+  },
+  "localGoTests": {
+    "topLevelPassed": 12,
+    "passEventsIncludingSubtests": 18,
+    "command": "CGO_ENABLED=0 go test -tags=with_gvisor ./..."
+  },
+  "lifecycleRace": {
+    "result": "PASS",
+    "command": "go test -race tun_lifecycle.go tun_lifecycle_test.go",
+    "scope": "actual shared production helper only; not complete Android runtime"
+  },
+  "localBuilds": {
+    "android": "PASS Go c-shared / NDK JNI / Flutter Release APK",
+    "macos": "PASS universal core / Flutter Release",
+    "windows": "not available on this host; existing CI used",
+    "anchor": "working tree before non-semantic brace formatting; final CI is exact candidate evidence",
+    "androidFinalCandidate": "PASS on exact candidate 1b764e93d260a2e740949dc99d3908a6208fe652, local JDK17/NDK29 Go c-shared + JNI + Release APK",
+    "androidFinalApkSha256": "60beb112a77b6107a170421048be5cf065b89c623f91e71ab042d4100c50cb6e",
+    "androidPackaging": {
+      "mergedCoreEqualsGoBuild": true,
+      "strippedCoreEqualsApk": true,
+      "apkSignatureVerification": "PASS v2 (test signing; not release acceptance)"
+    }
+  },
+  "firstCi": {
+    "id": 38207877758,
+    "candidate": "3c65a423c7bf51105d9f3acffe7cbf1bcf52694e",
+    "androidTestFailure": "filesystem test downloads provider only available on macOS",
+    "fixedBy": "1b764e93d260a2e740949dc99d3908a6208fe652"
+  },
+  "formalDeltaReview": "PENDING",
+  "findings": {
+    "NB-01": "PARTIAL; locked manual support path; safe non-terminal payment retry not supported by API",
+    "NB-02": "COMPLETE",
+    "NB-03": "COMPLETE source/build; device verification pending",
+    "NB-04": "COMPLETE",
+    "NB-05": "COMPLETE reported Dart defect; native device verification pending"
+  },
+  "agy": {
+    "startedSpecialistCalls": 1,
+    "embeddedCompleted": 0,
+    "embeddedFailed": 1,
+    "failedReason": "120s timeout",
+    "preTurnCliArgumentErrors": 1
+  },
+  "liveBusinessMutations": 0,
+  "knownBoundaries": [
+    "No real payment or device TUN/proxy acceptance",
+    "Existing upstream global hook concurrency boundary unchanged",
+    "Existing macOS enabled-only ownership boundary unchanged"
+  ],
+  "ci": {
+    "id": 38208379068,
+    "url": "https://github.com/pixingzoudaiyuexing/Entoma/actions/runs/38208379068",
+    "candidate": "1b764e93d260a2e740949dc99d3908a6208fe652",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "build (macos, macos-latest)",
+        "id": 114676907209,
+        "conclusion": "success",
+        "url": "https://github.com/pixingzoudaiyuexing/Entoma/actions/runs/38208379068/job/114676907209"
+      },
+      {
+        "name": "build (android, ubuntu-latest)",
+        "id": 114676907340,
+        "conclusion": "success",
+        "url": "https://github.com/pixingzoudaiyuexing/Entoma/actions/runs/38208379068/job/114676907340"
+      },
+      {
+        "name": "build (windows, windows-latest)",
+        "id": 114676907356,
+        "conclusion": "success",
+        "url": "https://github.com/pixingzoudaiyuexing/Entoma/actions/runs/38208379068/job/114676907356"
+      }
+    ],
+    "flutter": {
+      "macos": {
+        "passed": 120,
+        "skipped": 0
+      },
+      "windows": {
+        "passed": 120,
+        "skipped": 0
+      },
+      "android_host_linux": {
+        "passed": 119,
+        "skipped": 1,
+        "reason": "Manager disposal test needs macOS/Windows; facade tests still run on Linux"
+      }
+    },
+    "checks": "analysis, Flutter tests, Go tests, platform build and packaging all passed in each job",
+    "androidPackagedCoreSha256": "90816f174e03416f668f83ce5f82648a0fe9d3718cd0ddce98f301ccfba7bc16"
+  },
+  "artifacts": [
+    {
+      "file": "dist/post-review/1b764e9/android/Entoma-0.1.0-android-arm64-test.apk",
+      "bytes": 87129303,
+      "sha256": "be359fd225c7a73d37a1335b4be8cd4cb566e0679da2b81d9ba9ad0d38b530f7",
+      "producer": "GitHub CI 38208379068",
+      "candidate": "1b764e93d260a2e740949dc99d3908a6208fe652"
+    },
+    {
+      "file": "dist/post-review/1b764e9/android-local/Entoma-0.1.0-android-arm64-test.apk",
+      "bytes": 87145687,
+      "sha256": "60beb112a77b6107a170421048be5cf065b89c623f91e71ab042d4100c50cb6e",
+      "producer": "local final-candidate build",
+      "candidate": "1b764e93d260a2e740949dc99d3908a6208fe652"
+    },
+    {
+      "file": "dist/post-review/1b764e9/macos/Entoma-0.1.0-macos.pkg",
+      "bytes": 67518227,
+      "sha256": "737b262f9e978daac852b781ce5af2a61c17232bfebef5ab51aeb4b0e32c1b5f",
+      "producer": "GitHub CI 38208379068",
+      "candidate": "1b764e93d260a2e740949dc99d3908a6208fe652"
+    },
+    {
+      "file": "dist/post-review/1b764e9/macos/Entoma-0.1.0-macos.zip",
+      "bytes": 67577060,
+      "sha256": "73410e8f9973f2fde94cee618a9df7276c7bf43fec59359a1549e9c87ffaf7c3",
+      "producer": "GitHub CI 38208379068",
+      "candidate": "1b764e93d260a2e740949dc99d3908a6208fe652"
+    },
+    {
+      "file": "dist/post-review/1b764e9/windows/Entoma-0.1.0-windows-x64-setup.exe",
+      "bytes": 30696865,
+      "sha256": "eb945a186ce347e10530162370a5dd23e55380c5a29364bb06481d21216240a8",
+      "producer": "GitHub CI 38208379068",
+      "candidate": "1b764e93d260a2e740949dc99d3908a6208fe652"
+    },
+    {
+      "file": "dist/post-review/1b764e9/windows/Entoma-0.1.0-windows-x64.zip",
+      "bytes": 44428370,
+      "sha256": "1013c15ca8f1a30ba3095d0a2ce28b2824f64e289efd6dea5dbfbba42b73dde7",
+      "producer": "GitHub CI 38208379068",
+      "candidate": "1b764e93d260a2e740949dc99d3908a6208fe652"
+    }
+  ],
+  "packageInspection": {
+    "macosAppArchitectures": [
+      "x86_64",
+      "arm64"
+    ],
+    "macosCoreArchitectures": [
+      "x86_64",
+      "arm64"
+    ],
+    "bundleId": "com.entoma.client",
+    "androidAbis": [
+      "arm64-v8a"
+    ],
+    "windowsApplicationArchitecture": "x64",
+    "windowsInstaller": "Inno Setup PE32 bootstrap carrying x64 application"
+  }
+}

@@ -16,6 +16,8 @@ class ClashCore {
   static ClashCore? _instance;
   late ClashHandlerInterface clashInterface;
 
+  ClashCore.withInterface(this.clashInterface);
+
   ClashCore._internal() {
     if (Platform.isAndroid) {
       clashInterface = clashLib!;
@@ -60,7 +62,7 @@ class ClashCore {
         await geoFile.writeAsBytes(bytes, flush: true);
       }
     } catch (e) {
-      exit(0);
+      throw StateError('Unable to initialize bundled network data');
     }
   }
 
@@ -202,13 +204,9 @@ class ClashCore {
     return clashInterface.updateExternalProvider(providerName);
   }
 
-  startListener() async {
-    await clashInterface.startListener();
-  }
+  Future<bool> startListener() => clashInterface.startListener();
 
-  stopListener() async {
-    await clashInterface.stopListener();
-  }
+  Future<bool> stopListener() => clashInterface.stopListener();
 
   Future<Delay> getDelay(String url, String proxyName) async {
     final data = await clashInterface.asyncTestDelay(url, proxyName);

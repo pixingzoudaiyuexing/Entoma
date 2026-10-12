@@ -127,10 +127,17 @@ class GlobalState {
   }
 
   handleStart([UpdateTasks? tasks]) async {
-    startTime ??= DateTime.now();
-    await clashCore.startListener();
-    await service?.startVpn();
-    startUpdateTasks(tasks);
+    if (!await clashCore.startListener()) throw StateError('代理监听启动失败，请检查端口或配置');
+    try {
+      final started = await service?.startVpn();
+      if (started == false) throw StateError('VPN 启动失败，请检查系统权限');
+      startTime ??= DateTime.now();
+      startUpdateTasks(tasks);
+    } catch (_) {
+      await clashCore.stopListener();
+      startTime = null;
+      rethrow;
+    }
   }
 
   Future updateStartTime() async {

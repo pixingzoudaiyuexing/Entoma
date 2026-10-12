@@ -6,8 +6,6 @@ import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/widgets.dart';
-import 'package:fl_clash/xboard/features/online_support/providers/chat_provider.dart';
-import 'package:fl_clash/xboard/features/shared/shared.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -86,9 +84,10 @@ class _HomePageViewState extends ConsumerState<_HomePageView> {
 
   int get _pageIndex {
     final navigationItems = ref.read(currentNavigationsStateProvider).value;
-    return navigationItems.indexWhere(
+    final index = navigationItems.indexWhere(
       (item) => item.label == globalState.appState.pageLabel,
     );
+    return index < 0 ? 0 : index;
   }
 
   _toPage(PageLabel pageLabel, [bool ignoreAnimateTo = false]) async {
@@ -167,16 +166,6 @@ class CommonNavigationBar extends ConsumerWidget {
 
   // 为指定的 PageLabel 创建带未读标记的图标
   Widget _buildIconWithBadge(PageLabel label, Widget icon, WidgetRef ref) {
-    // 只有联系客服页面需要显示未读标记
-    if (label == PageLabel.onlineSupport) {
-      final chatState = ref.watch(chatProvider);
-      final unreadCount = chatState.unreadCount;
-
-      return BadgeIcon(
-        icon: icon,
-        count: unreadCount,
-      );
-    }
     return icon;
   }
 

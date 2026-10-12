@@ -1,0 +1,66 @@
+{
+  "capturedAt": "2026-10-12T11:54:29.029000+08:00",
+  "applicationBuildSha": "96eb422bdec7168ece2482d774428bee631b57cf",
+  "coreSha256": "f8cb3aa1de08451338226dece7a677e9cc4eaabc0971ba82c97262bcf8889cdc",
+  "exitCode": 0,
+  "evidence": {
+    "apiTransport": "existing-loopback-proxy",
+    "login": true,
+    "accountActive": true,
+    "wallet": {
+      "ok": true,
+      "balanceZero": false
+    },
+    "config/account": {
+      "ok": true
+    },
+    "subscription/overview": {
+      "ok": true
+    },
+    "products": {
+      "ok": true,
+      "count": 6
+    },
+    "orders": {
+      "ok": true,
+      "count": 7
+    },
+    "billing/methods": {
+      "ok": true,
+      "count": 2
+    },
+    "tickets": {
+      "ok": true
+    },
+    "notices": {
+      "ok": true
+    },
+    "referrals": {
+      "ok": true
+    },
+    "subscription": {
+      "bytes": 23739,
+      "nodes": 4,
+      "preparedSha256": "e286d02427ca694b6edc2c640de93766be28a99205a342f6d0b8e04cdca9684c"
+    },
+    "nativeCoreAuthenticated": true,
+    "nativeCoreConfigValidation": true,
+    "nodeRoutingForcedInProbe": true,
+    "nativeCoreStarted": true,
+    "nodeSelected": true,
+    "latencyMeasured": true,
+    "nativeCoreHttpsForwarding": true,
+    "httpsStreamThroughSelectedNode": true,
+    "nativeCoreTrafficPositive": true,
+    "malformedUpdateRejected": true,
+    "forwardingSurvivesMalformedUpdate": true,
+    "nativeCoreStopped": true,
+    "listenerReleased": true,
+    "systemProxyChanged": false,
+    "tunEnabled": false
+  },
+  "directApiReplay": {
+    "login": true,
+    "me": "NETWORK_ERROR"
+  }
+}

@@ -1,5 +1,4 @@
 import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
@@ -49,16 +48,26 @@ class _StartButtonState extends ConsumerState<StartButton>
     super.dispose();
   }
 
-  handleSwitchStart() {
-    isStart = !isStart;
-    updateController();
-    debouncer.call(
-      FunctionTag.updateStatus,
-      () {
-        globalState.appController.updateStatus(isStart);
-      },
-      duration: commonDuration,
-    );
+  bool pending = false;
+  Future<void> handleSwitchStart() async {
+    if (pending) return;
+    setState(() {
+      pending = true;
+    });
+    try {
+      final target = !ref.read(runTimeProvider.notifier).isStart;
+      await globalState.appController.updateStatus(target);
+    } catch (_) {
+      globalState.showNotifier('连接未完成，请检查端口、订阅或系统权限后重试。');
+    } finally {
+      if (mounted) {
+        setState(() {
+          pending = false;
+          isStart = ref.read(runTimeProvider.notifier).isStart;
+        });
+        updateController();
+      }
+    }
   }
 
   updateController() {
@@ -104,9 +113,7 @@ class _StartButtonState extends ConsumerState<StartButton>
             clipBehavior: Clip.antiAlias,
             materialTapTargetSize: MaterialTapTargetSize.padded,
             heroTag: null,
-            onPressed: () {
-              handleSwitchStart();
-            },
+            onPressed: pending ? null : handleSwitchStart,
             child: Row(
               mainAxisSize: MainAxisSize.max,
               children: [

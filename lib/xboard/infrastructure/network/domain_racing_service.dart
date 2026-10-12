@@ -230,16 +230,6 @@ class DomainRacingService {
         _logger.info('[域名竞速] 域名 #$index 配置SOCKS5代理: ${proxyConfig['host']}:${proxyConfig['port']}');
       }
       
-      // 配置证书验证（必须在配置代理之后设置）
-      if (isIpWithPort) {
-        // IP+端口：完全忽略证书验证
-        client.badCertificateCallback =
-            (X509Certificate cert, String host, int port) {
-          _logger.info('[域名竞速] 域名 #$index 忽略证书验证: $host:$port');
-          return true; // 完全接受任何证书
-        };
-      }
-
       client.connectionTimeout = _connectionTimeout;
 
       final uri = Uri.parse(testUrl);
