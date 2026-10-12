@@ -18,19 +18,30 @@ class ProxyManager extends ConsumerStatefulWidget {
 class _ProxyManagerState extends ConsumerState<ProxyManager> {
   Future<void> _changes = Future.value();
   _updateProxy(ProxyState proxyState) async {
+    if (proxy == null) return;
     final isStart = proxyState.isStart;
     final systemProxy = proxyState.systemProxy;
     final port = proxyState.port;
     if (isStart && systemProxy) {
-      final result = await proxy?.startProxy(port, proxyState.bassDomain);
-      if (result == false) {
-        await proxy?.stopProxy();
+      try {
+        if (await proxy!.startProxy(port, proxyState.bassDomain) == true) {
+          return;
+        }
+      } catch (_) {
+        // The native side may still own a partially applied snapshot.
       }
-      if (result == false)
-        globalState.showNotifier('无法设置系统代理。原有设置已保留，请检查系统权限。');
+      bool restored = false;
+      try {
+        restored = await proxy!.stopProxy() == true;
+      } catch (_) {}
+      if (!mounted) return;
+      globalState.showNotifier(
+          restored ? '无法设置系统代理，请检查系统权限后重试。' : '系统代理设置失败且尚未恢复，请检查系统设置后重试关闭。');
     } else {
-      final result = await proxy?.stopProxy();
-      if (result == false) globalState.showNotifier('系统代理尚未恢复，请检查系统设置。');
+      try {
+        if (await proxy!.stopProxy() == true) return;
+      } catch (_) {}
+      if (mounted) globalState.showNotifier('系统代理尚未恢复，请检查系统设置后重试关闭。');
     }
   }
 
@@ -48,6 +59,16 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
       },
       fireImmediately: true,
     );
+  }
+
+  @override
+  void dispose() {
+    _changes = _changes.catchError((_) {}).then((_) async {
+      try {
+        await proxy?.stopProxy();
+      } catch (_) {}
+    });
+    super.dispose();
   }
 
   @override

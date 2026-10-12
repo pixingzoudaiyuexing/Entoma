@@ -5,6 +5,14 @@ Review the HEAD of `codex/entoma-solution-mvp` against
 the full candidate SHA and its CI run; this document deliberately does not claim
 that a future commit or unsigned installer has passed formal release review.
 
+## Post-review handoff
+
+Project + Product Manager records **PASS WITH CONDITIONS** for baseline
+`09fe23ec5e7a183fe2376f3e4150f1965fdcaac1`. The five-finding fix and its required
+**PENDING** formal delta review are recorded in [POST-REVIEW.md](POST-REVIEW.md).
+Historical validation and specialist counts below belong to the original MVP;
+this later task has separate evidence and counts. No original evidence is removed.
+
 ## Result and authority
 
 The existing formal Entoma checkout is reused. FlClash UI/core/platform components

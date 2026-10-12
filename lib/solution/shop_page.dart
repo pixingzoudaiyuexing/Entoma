@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
+import 'community_pages.dart';
 import 'session.dart';
 import 'widgets.dart';
 
@@ -311,15 +312,7 @@ class _OrderPageState extends ConsumerState<OrderPage> {
     }
     loading = true;
     try {
-      final value = SolutionOrder(
-        object(
-          await session.request(
-            '/api/v1/orders/${Uri.encodeComponent(widget.id)}',
-          ),
-        ),
-      );
-      if (!mounted || session.generation != widget.generation) return;
-      await session.reconcileOrder(value);
+      final value = await session.readOrder(widget.id, widget.generation);
       if (!mounted || session.generation != widget.generation) return;
       setState(() {
         order = value;
@@ -330,7 +323,7 @@ class _OrderPageState extends ConsumerState<OrderPage> {
         unawaited(session.refreshAccount());
       }
     } catch (failure) {
-      if (mounted) {
+      if (mounted && session.generation == widget.generation) {
         setState(() {
           error =
               failure is SolutionError ? failure.toString() : '暂时无法读取订单，请重试';
@@ -449,7 +442,7 @@ class _OrderPageState extends ConsumerState<OrderPage> {
             FilledButton(
               onPressed: busy ||
                       action != null ||
-                      session.pendingMutations.contains('checkout:${widget.id}')
+                      session.orderOperationPending(widget.id)
                   ? null
                   : () async {
                       setState(() {
@@ -465,7 +458,7 @@ class _OrderPageState extends ConsumerState<OrderPage> {
               child: const Text('选择方式并付款'),
             ),
             TextButton(
-              onPressed: busy
+              onPressed: busy || session.orderOperationPending(widget.id)
                   ? null
                   : () => uiAction(context, () async {
                         final yes = await showDialog<bool>(
@@ -486,6 +479,7 @@ class _OrderPageState extends ConsumerState<OrderPage> {
                           ),
                         );
                         if (yes == true &&
+                            mounted &&
                             session.generation == widget.generation) {
                           await session.mutate(
                             'cancel:${widget.id}',
@@ -501,8 +495,18 @@ class _OrderPageState extends ConsumerState<OrderPage> {
               child: const Text('取消订单'),
             ),
           ],
-          if (session.pendingMutations.contains('checkout:${widget.id}'))
-            const Text('支付请求结果未知，请先确认订单状态及支付应用记录。客户端不会自动发起第二次付款。'),
+          if (session.orderOperationPending(widget.id)) ...[
+            const Text('上次付款或取消的结果尚未确认。待支付状态不能排除已有支付会话；请刷新订单，并核对支付应用的交易记录。'),
+            const Text(
+                '当前服务无法核验未完成的支付会话，客户端暂时保留操作保护。若状态持续未确认，请联系客服核查；不会自动再次付款或取消。'),
+            OutlinedButton(
+              onPressed: () =>
+                  Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const SolutionSupportPage(),
+              )),
+              child: const Text('联系客服核查订单'),
+            ),
+          ],
         ],
       ),
     );

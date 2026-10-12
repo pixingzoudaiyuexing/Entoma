@@ -150,18 +150,21 @@ class AppController {
     _ref.read(currentProfileIdProvider.notifier).value = profile.id;
   }
 
-  deleteProfile(String id) async {
+  Future<void> deleteProfile(String id) async {
+    if (_ref.read(currentProfileIdProvider) == id &&
+        !_ref.read(profilesProvider).any((profile) => profile.id != id)) {
+      await updateStatus(false);
+    }
+    await clearEffect(id);
     _ref.read(profilesProvider.notifier).deleteProfileById(id);
-    clearEffect(id);
-    if (globalState.config.currentProfileId == id) {
-      final profiles = globalState.config.profiles;
+    if (_ref.read(currentProfileIdProvider) == id) {
+      final profiles = _ref.read(profilesProvider);
       final currentProfileId = _ref.read(currentProfileIdProvider.notifier);
       if (profiles.isNotEmpty) {
         final updateId = profiles.first.id;
         currentProfileId.value = updateId;
       } else {
         currentProfileId.value = null;
-        updateStatus(false);
       }
     }
   }
@@ -511,8 +514,9 @@ class AppController {
   checkUpdateResultHandle({
     Map<String, dynamic>? data,
     bool handleError = false,
+    bool manual = false,
   }) async {
-    if (globalState.isPre) {
+    if (globalState.isPre && !manual) {
       return;
     }
     if (data != null) {
@@ -714,7 +718,7 @@ class AppController {
       for (final profile in urlProfiles) {
         commonPrint.log(
             'Removing existing URL profile: ${profile.label ?? profile.id}');
-        deleteProfile(profile.id);
+        await deleteProfile(profile.id);
       }
 
       // 然后添加新的订阅
@@ -840,19 +844,19 @@ class AppController {
     };
   }
 
-  clearEffect(String profileId) async {
+  Future<void> clearEffect(String profileId) async {
     final profilePath = await appPath.getProfilePath(profileId);
     final providersDirPath = await appPath.getProvidersDirPath(profileId);
     return await Isolate.run(() async {
       final profileFile = File(profilePath);
       final isExists = await profileFile.exists();
       if (isExists) {
-        profileFile.delete(recursive: true);
+        await profileFile.delete(recursive: true);
       }
-      final providersFileDir = File(providersDirPath);
+      final providersFileDir = Directory(providersDirPath);
       final providersFileIsExists = await providersFileDir.exists();
       if (providersFileIsExists) {
-        providersFileDir.delete(recursive: true);
+        await providersFileDir.delete(recursive: true);
       }
     });
   }

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 import "package:path/path.dart";
 
@@ -8,34 +9,40 @@ enum ProxyTypes { http, https, socks }
 
 class Proxy extends ProxyPlatform {
   static String url = "127.0.0.1";
-  bool _ownsSystemProxy = false;
+  final String _operatingSystem;
+  bool _ownsLinuxProxy = false;
+  Proxy() : _operatingSystem = Platform.operatingSystem;
+  @visibleForTesting
+  Proxy.forPlatform(this._operatingSystem);
 
   @override
   Future<bool?> startProxy(
     int port, [
     List<String> bypassDomain = const [],
   ]) async {
-    final result = switch (Platform.operatingSystem) {
+    final result = switch (_operatingSystem) {
       "macos" => await ProxyPlatform.instance.startProxy(port, bypassDomain),
       "linux" => await _startProxyWithLinux(port, bypassDomain),
       "windows" => await ProxyPlatform.instance.startProxy(port, bypassDomain),
       String() => false,
     };
-    if (result == true || Platform.isMacOS || Platform.isWindows)
-      _ownsSystemProxy = true;
+    if (result == true && _operatingSystem == 'linux') _ownsLinuxProxy = true;
     return result;
   }
 
   @override
   Future<bool?> stopProxy() async {
-    if (!_ownsSystemProxy) return true;
-    final result = switch (Platform.operatingSystem) {
+    // Native snapshots are the authority, including partially failed starts.
+    // Native stop without an owned snapshot is a no-op. A Dart success flag
+    // cannot decide whether a native restoration still needs to be retried.
+    if (_operatingSystem == 'linux' && !_ownsLinuxProxy) return true;
+    final result = switch (_operatingSystem) {
       "macos" => await ProxyPlatform.instance.stopProxy(),
       "linux" => await _stopProxyWithLinux(),
       "windows" => await ProxyPlatform.instance.stopProxy(),
       String() => false,
     };
-    if (result == true) _ownsSystemProxy = false;
+    if (result == true) _ownsLinuxProxy = false;
     return result;
   }
 

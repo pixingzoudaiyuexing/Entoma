@@ -19,12 +19,12 @@ import (
 	"github.com/metacubex/mihomo/listener/sing_tun"
 	"github.com/metacubex/mihomo/log"
 	"golang.org/x/sync/semaphore"
+	"io"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 )
 
@@ -35,26 +35,24 @@ type TunHandler struct {
 	limit *semaphore.Weighted
 }
 
-func (t *TunHandler) close() {
+func (t *TunHandler) Close() error {
 	_ = t.limit.Acquire(context.TODO(), 4)
-	defer t.limit.Release(4)
 	removeTunHook()
-	if t.listener != nil {
-		_ = t.listener.Close()
-	}
-
-	if t.callback != nil {
-		releaseObject(t.callback)
-	}
+	listener := t.listener
 	t.callback = nil
 	t.listener = nil
+	t.limit.Release(4)
+	if listener != nil {
+		return listener.Close()
+	}
+	return nil
 }
 
 func (t *TunHandler) handleProtect(fd int) {
 	_ = t.limit.Acquire(context.Background(), 1)
 	defer t.limit.Release(1)
 
-	if t.listener == nil {
+	if t.callback == nil {
 		return
 	}
 
@@ -65,7 +63,7 @@ func (t *TunHandler) handleResolveProcess(source, target net.Addr) string {
 	_ = t.limit.Acquire(context.Background(), 1)
 	defer t.limit.Release(1)
 
-	if t.listener == nil {
+	if t.callback == nil {
 		return ""
 	}
 	var protocol int
@@ -84,61 +82,50 @@ func (t *TunHandler) handleResolveProcess(source, target net.Addr) string {
 
 var (
 	tunLock    sync.Mutex
-	runTime    *time.Time
+	androidTun tunLifecycle
 	errBlocked = errors.New("blocked")
-	tunHandler *TunHandler
 )
 
 func handleStopTun() {
-	tunLock.Lock()
-	defer tunLock.Unlock()
-	runTime = nil
-	if tunHandler != nil {
-		tunHandler.close()
-	}
+	androidTun.stop()
 }
 
 func handleStartTun(fd int, callback unsafe.Pointer) bool {
-	handleStopTun()
-	tunLock.Lock()
-	defer tunLock.Unlock()
-	if currentConfig == nil {
-		return false
-	}
-	if fd != 0 {
-		tunHandler = &TunHandler{
-			callback: callback,
-			limit:    semaphore.NewWeighted(4),
+	return androidTun.start(currentConfig != nil, fd, func() {
+		if callback != nil {
+			releaseObject(callback)
 		}
-		initTunHook()
-		tunListener, err := t.Start(fd, currentConfig.General.Tun.Device, currentConfig.General.Tun.Stack)
-		if err == nil && tunListener != nil {
-			log.Infoln("TUN address: %v", tunListener.Address())
-			tunHandler.listener = tunListener
-		} else {
-			removeTunHook()
-			return false
+	}, func() (io.Closer, error) {
+		handler := &TunHandler{callback: callback, limit: semaphore.NewWeighted(4)}
+		initTunHook(handler)
+		listener, err := t.Start(fd, currentConfig.General.Tun.Device, currentConfig.General.Tun.Stack)
+		handler.listener = listener
+		if err == nil && listener != nil {
+			log.Infoln("TUN address: %v", listener.Address())
+			return handler, nil
 		}
-	}
-	now := time.Now()
-	runTime = &now
-	return true
+		if err == nil {
+			err = errors.New("missing TUN listener")
+		}
+		return handler, err
+	})
 }
 
 func handleGetRunTime() string {
+	runTime := androidTun.runtime()
 	if runTime == nil {
 		return ""
 	}
 	return strconv.FormatInt(runTime.UnixMilli(), 10)
 }
 
-func initTunHook() {
+func initTunHook(handler *TunHandler) {
 	dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
 		if platform.ShouldBlockConnection() {
 			return errBlocked
 		}
 		return conn.Control(func(fd uintptr) {
-			tunHandler.handleProtect(int(fd))
+			handler.handleProtect(int(fd))
 		})
 	}
 	process.DefaultPackageNameResolver = func(metadata *constant.Metadata) (string, error) {
@@ -146,7 +133,7 @@ func initTunHook() {
 		if src == nil || dst == nil {
 			return "", process.ErrInvalidNetwork
 		}
-		return tunHandler.handleResolveProcess(src, dst), nil
+		return handler.handleResolveProcess(src, dst), nil
 	}
 }
 
@@ -241,9 +228,7 @@ func getRunTime() *C.char {
 
 //export stopTun
 func stopTun() {
-	go func() {
-		handleStopTun()
-	}()
+	handleStopTun()
 }
 
 //export getCurrentProfileName

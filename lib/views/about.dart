@@ -4,10 +4,14 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/list.dart';
-import 'package:fl_clash/xboard/features/update_check/providers/update_check_provider.dart';
-import 'package:fl_clash/xboard/features/update_check/widgets/update_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+// Use the same Entoma release source as automatic update checks.
+final releaseUpdateCheckProvider =
+    Provider<Future<Map<String, dynamic>?> Function()>(
+  (_) => request.checkForUpdate,
+);
 
 @immutable
 class Contributor {
@@ -25,78 +29,41 @@ class Contributor {
 class AboutView extends ConsumerWidget {
   const AboutView({super.key});
 
-  _checkUpdate(BuildContext context, WidgetRef ref) async {
-    final commonScaffoldState = context.commonScaffoldState;
-    if (commonScaffoldState?.mounted != true) return;
-    
+  Future<void> _checkUpdate(BuildContext context, WidgetRef ref) async {
+    if (!context.mounted) return;
+    final scaffold = context.commonScaffoldState;
+    if (scaffold?.mounted != true) return;
+    // Capture the loader before waiting; the page/ref may be disposed later.
+    final load = ref.read(releaseUpdateCheckProvider);
     try {
-      // 显示加载状态并执行更新检查
-      await commonScaffoldState?.loadingRun<void>(
-        () async {
-          final updateNotifier = ref.read(updateCheckProvider.notifier);
-          await updateNotifier.checkForUpdates();
-        },
-        title: appLocalizations.checkUpdate,
-      );
-      
-      // 检查更新结果
-      final updateState = ref.read(updateCheckProvider);
-      if (updateState.hasUpdate) {
-        // 有更新，显示更新弹窗
-        if (context.mounted) {
-          showDialog(
-            context: context,
-            builder: (context) => UpdateDialog(state: updateState),
-          );
+      Map<String, dynamic>? result;
+      bool failed = false;
+      await scaffold!.loadingRun<void>(() async {
+        try {
+          result = await load().timeout(const Duration(seconds: 25));
+        } catch (_) {
+          failed = true;
         }
-      } else if (updateState.error != null) {
-        // 检查失败，显示错误信息
-        if (context.mounted) {
-          String errorMessage = '检查更新失败';
-          if (updateState.error!.contains('530')) {
-            errorMessage = '更新服务暂时不可用，请稍后重试';
-          } else if (updateState.error!.contains('SSL') || 
-                     updateState.error!.contains('HandshakeException') ||
-                     updateState.error!.contains('TLSV1_ALERT_INTERNAL_ERROR')) {
-            errorMessage = 'SSL连接失败，请检查网络或稍后重试';
-          } else if (updateState.error!.contains('timeout')) {
-            errorMessage = '网络连接超时，请检查网络连接';
-          } else if (updateState.error!.contains('connection')) {
-            errorMessage = '无法连接到更新服务器';
-          }
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(errorMessage),
-              backgroundColor: Colors.orange,
-              action: SnackBarAction(
-                label: '重试',
-                textColor: Colors.white,
-                onPressed: () => _checkUpdate(context, ref),
-              ),
-            ),
-          );
-        }
+      }, title: appLocalizations.checkUpdate);
+      if (!context.mounted) return;
+      if (failed) throw StateError('Release lookup failed');
+      if (result != null) {
+        await globalState.appController.checkUpdateResultHandle(
+          data: result,
+          manual: true,
+        );
       } else {
-        // 已是最新版本
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('已是最新版本'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('检查更新失败: $e'),
-            backgroundColor: Colors.red,
-          ),
+          const SnackBar(content: Text('已是最新版本')),
         );
       }
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('检查更新失败，请检查网络后重试'),
+        action: SnackBarAction(
+            label: '重试', onPressed: () => _checkUpdate(context, ref)),
+      ));
     }
   }
 

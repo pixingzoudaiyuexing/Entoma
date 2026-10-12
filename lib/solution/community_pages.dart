@@ -162,7 +162,7 @@ class TicketPage extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('工单详情')),
       body: RemotePanel(
-        load: () => session.request(path),
+        load: () => session.readTicket(id, generation),
         builder: (data, refresh) {
           final ticket = object(data);
           return BusinessBody(
@@ -186,6 +186,16 @@ class TicketPage extends ConsumerWidget {
                   ),
                 ),
               OutlinedButton(onPressed: refresh, child: const Text('刷新回复')),
+              if (session.pendingMutations.contains('ticket:close:$id'))
+                TicketCloseRecoveryButton(
+                  id: id,
+                  generation: generation,
+                  refresh: () {
+                    if (context.mounted && session.generation == generation) {
+                      refresh();
+                    }
+                  },
+                ),
               if (session.pendingMutations.contains('ticket:reply:$id'))
                 PendingReviewButton(
                   operationKey: 'ticket:reply:$id',
@@ -216,34 +226,49 @@ class TicketPage extends ConsumerWidget {
                   child: const Text('回复工单'),
                 ),
                 TextButton(
-                  onPressed: () => uiAction(context, () async {
-                    final yes = await showDialog<bool>(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: const Text('关闭此工单？'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: const Text('返回'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            child: const Text('关闭工单'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (yes != true || session.generation != generation) return;
-                    await session.mutate(
-                      'ticket:close:$id',
-                      (mutation) => mutation.request(
-                        '$path/close',
-                        method: 'POST',
-                        successField: 'closed',
-                      ),
-                    );
-                    refresh();
-                  }),
+                  onPressed:
+                      session.pendingMutations.contains('ticket:close:$id')
+                          ? null
+                          : () => uiAction(context, () async {
+                                final yes = await showDialog<bool>(
+                                  context: context,
+                                  builder: (_) => AlertDialog(
+                                    title: const Text('关闭此工单？'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text('返回'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: const Text('关闭工单'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (yes != true ||
+                                    !context.mounted ||
+                                    session.generation != generation) {
+                                  return;
+                                }
+                                try {
+                                  await session.mutate(
+                                    'ticket:close:$id',
+                                    (mutation) => mutation.request(
+                                      '$path/close',
+                                      method: 'POST',
+                                      successField: 'closed',
+                                    ),
+                                  );
+                                } finally {
+                                  if (context.mounted &&
+                                      session.generation == generation) {
+                                    refresh();
+                                  }
+                                }
+                              }),
                   child: const Text('关闭工单'),
                 ),
               ],
@@ -253,6 +278,71 @@ class TicketPage extends ConsumerWidget {
       ),
     );
   }
+}
+
+class TicketCloseRecoveryButton extends ConsumerStatefulWidget {
+  final String id;
+  final int generation;
+  final VoidCallback refresh;
+  const TicketCloseRecoveryButton(
+      {super.key,
+      required this.id,
+      required this.generation,
+      required this.refresh});
+  @override
+  ConsumerState<TicketCloseRecoveryButton> createState() =>
+      _TicketCloseRecoveryState();
+}
+
+class _TicketCloseRecoveryState
+    extends ConsumerState<TicketCloseRecoveryButton> {
+  bool busy = false;
+  Future<void> recover() async {
+    final session = ref.read(solutionSessionProvider);
+    setState(() => busy = true);
+    try {
+      await uiAction(context, () async {
+        final ticket = await session.readTicket(widget.id, widget.generation);
+        if (!mounted || session.generation != widget.generation) return;
+        if (ticket['status'] == 'closed') return;
+        final yes = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+                  title: const Text('重新确认关闭工单？'),
+                  content:
+                      const Text('最新记录显示工单仍开放。再次关闭只会将该工单设为关闭，不会发送回复。是否重新提交关闭？'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('返回')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(dialogContext, true),
+                        child: const Text('确认重新关闭')),
+                  ],
+                ));
+        if (yes != true ||
+            !mounted ||
+            session.generation != widget.generation) {
+          return;
+        }
+        await session.retryTicketClose(widget.id, widget.generation);
+      });
+    } finally {
+      if (mounted && session.generation == widget.generation) {
+        setState(() => busy = false);
+      }
+      // Successful reconciliation may already have removed this button.
+      // The parent callback checks the page lifetime independently.
+      widget.refresh();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(children: [
+        const Text('上次关闭工单结果尚未确认。请核验最新状态；仍开放时可由你重新确认关闭。'),
+        OutlinedButton(
+            onPressed: busy ? null : recover, child: const Text('核验并恢复关闭工单')),
+      ]);
 }
 
 class SolutionReferralsPage extends ConsumerWidget {

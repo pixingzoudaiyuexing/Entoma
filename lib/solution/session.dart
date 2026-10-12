@@ -105,6 +105,7 @@ class SolutionSession extends ChangeNotifier {
   int? balanceMinor;
   String currencySymbol = '';
   final Set<String> pendingMutations = {};
+  final Set<String> _ticketCloseRecoveries = {};
   Future<void> _writes = Future.value();
   final Map<String, List<String>> _journal = {};
   Future<void> Function(String? nextEmail)? onAccountChange;
@@ -323,16 +324,34 @@ class SolutionSession extends ChangeNotifier {
   ) async {
     if (busy) throw const SolutionError('OPERATION_IN_PROGRESS');
     if (!_journalReady) throw const SolutionError('STORAGE_ERROR');
-    if (pendingMutations.contains(key)) {
+    final orderId = key.startsWith('checkout:')
+        ? key.substring(9)
+        : key.startsWith('cancel:')
+            ? key.substring(7)
+            : null;
+    if (pendingMutations.contains(key) ||
+        (orderId != null && orderOperationPending(orderId))) {
       throw const SolutionError('MUTATION_PENDING');
     }
-    final expected = generation;
+    return _performMutation(key, action, generation);
+  }
+
+  bool orderOperationPending(String id) =>
+      pendingMutations.contains('checkout:$id') ||
+      pendingMutations.contains('cancel:$id');
+
+  Future<T> _performMutation<T>(
+      String key, Future<T> Function(MutationContext) action, int expected,
+      {bool alreadyPending = false}) async {
     pendingMutations.add(key);
     notifyListeners();
     try {
       await _persist(expected); // Fail closed before sending a mutation.
     } catch (_) {
-      if (expected == generation) pendingMutations.remove(key);
+      if (expected == generation) {
+        if (!alreadyPending) pendingMutations.remove(key);
+        notifyListeners();
+      }
       throw const SolutionError('STORAGE_ERROR');
     }
     try {
@@ -343,6 +362,7 @@ class SolutionSession extends ChangeNotifier {
       if (expected != generation) throw const SolutionError('STALE_SESSION');
       try {
         await _persist(expected, completed: {key});
+        if (expected != generation) throw const SolutionError('STALE_SESSION');
       } catch (_) {
         if (expected == generation) pendingMutations.add(key);
         throw const SolutionError('STORAGE_ERROR', outcomeUnknown: true);
@@ -350,6 +370,7 @@ class SolutionSession extends ChangeNotifier {
       return value;
     } on SolutionError catch (error) {
       if (expected == generation &&
+          !alreadyPending &&
           !error.outcomeUnknown &&
           error.code != 'STALE_SESSION' &&
           error.code != 'INVALID_RESPONSE') {
@@ -365,12 +386,75 @@ class SolutionSession extends ChangeNotifier {
     }
   }
 
-  Future<void> reconcileOrder(SolutionOrder order) async {
-    if (!order.terminal) return;
-    final expected = generation;
-    await _persist(expected,
-        completed: {'checkout:${order.id}', 'cancel:${order.id}'});
+  Future<void> _completeReadback(Set<String> keys, int expected) async {
+    if (expected != generation) throw const SolutionError('STALE_SESSION');
+    if (!keys.any(pendingMutations.contains)) return;
+    try {
+      await _persist(expected, completed: keys);
+    } catch (_) {
+      throw const SolutionError('STORAGE_ERROR');
+    }
+    if (expected != generation) throw const SolutionError('STALE_SESSION');
     notifyListeners();
+  }
+
+  Future<SolutionOrder> readOrder(String id, int expected) async {
+    final order = SolutionOrder(object(await request(
+      '/api/v1/orders/${Uri.encodeComponent(id)}',
+      expectedGeneration: expected,
+    )));
+    if (order.id != id) throw const SolutionError('INVALID_RESPONSE');
+    // Pending can include an active payment session. Only terminal readback
+    // releases the shared checkout/cancel lock; never infer payment absence.
+    if (order.terminal) {
+      await _completeReadback({'checkout:$id', 'cancel:$id'}, expected);
+    }
+    return order;
+  }
+
+  Future<Map<String, dynamic>> readTicket(String id, int expected) async {
+    final ticket = object(await request(
+      '/api/v1/tickets/${Uri.encodeComponent(id)}',
+      expectedGeneration: expected,
+    ));
+    if (ticket['id'] != id || !{'open', 'closed'}.contains(ticket['status'])) {
+      throw const SolutionError('INVALID_RESPONSE');
+    }
+    if (ticket['status'] == 'closed') {
+      await _completeReadback({'ticket:close:$id'}, expected);
+    }
+    return ticket;
+  }
+
+  // Called only after a new explicit user confirmation. V2Board close writes
+  // the owner's ticket to status=closed; repeating it has no payment/reply side
+  // effects. Keep the old journal until success or authoritative closed readback.
+  Future<void> retryTicketClose(String id, int expected) async {
+    final key = 'ticket:close:$id';
+    final flight = '$expected:$key';
+    if (expected != generation) throw const SolutionError('STALE_SESSION');
+    if (busy || !_ticketCloseRecoveries.add(flight)) {
+      throw const SolutionError('OPERATION_IN_PROGRESS');
+    }
+    try {
+      if (!_journalReady) throw const SolutionError('STORAGE_ERROR');
+      if (!pendingMutations.contains(key)) {
+        throw const SolutionError('MUTATION_PENDING');
+      }
+      final ticket = await readTicket(id, expected);
+      if (ticket['status'] == 'closed') return;
+      if (expected != generation) throw const SolutionError('STALE_SESSION');
+      await _performMutation(
+          key,
+          (mutation) => mutation.request(
+                '/api/v1/tickets/${Uri.encodeComponent(id)}/close',
+                successField: 'closed',
+              ),
+          expected,
+          alreadyPending: true);
+    } finally {
+      _ticketCloseRecoveries.remove(flight);
+    }
   }
 
   Future<void> acknowledgeNewIntent(String key, int expected) async {
