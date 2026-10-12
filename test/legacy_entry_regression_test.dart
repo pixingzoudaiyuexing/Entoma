@@ -9,10 +9,21 @@ import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/about.dart';
 import 'package:fl_clash/widgets/scaffold.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+
+class FixturePaths extends PathProviderPlatform {
+  final String path;
+  FixturePaths(this.path);
+  @override
+  Future<String?> getApplicationSupportPath() async => path;
+  @override
+  Future<String?> getTemporaryPath() async => path;
+  @override
+  Future<String?> getDownloadsPath() async => path;
+}
 
 class DeleteController extends AppController {
   final events = <String>[];
@@ -120,10 +131,8 @@ void main() {
     await tester.runAsync(() async {
       final directory =
           await Directory.systemTemp.createTemp('entoma-delete-test-');
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(
-              const MethodChannel('plugins.flutter.io/path_provider'),
-              (_) async => directory.path);
+      final previousPaths = PathProviderPlatform.instance;
+      PathProviderPlatform.instance = FixturePaths(directory.path);
       final old = appPath.dataDir;
       await old.future;
       appPath.dataDir = Completer<Directory>()..complete(directory);
@@ -142,6 +151,7 @@ void main() {
         expect(await neighbor.readAsString(), 'keep');
       } finally {
         appPath.dataDir = old;
+        PathProviderPlatform.instance = previousPaths;
         await directory.delete(recursive: true);
       }
     });

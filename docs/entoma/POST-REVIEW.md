@@ -63,6 +63,12 @@ committed. Existing runtime evidence and prior installers are retained.
   Existing Swift Package Manager adoption warnings remain.
 - Windows and final exact-commit platform build results are recorded in the
   accompanying sanitized post-review evidence after existing CI completes.
+- A portability follow-up replaced the filesystem test's macOS-only channel mock
+  with a platform-interface fixture (support/temp/download paths). The first
+  Android-host CI test run exposed the unsupported downloads path; the same
+  simulated Linux-provider reproduction passes after this test-only fix. The
+  already-pinned platform interface is an explicit dev dependency, with no new
+  runtime package/version or application path change.
 - `git diff --check` passed. Initial tests reproduced cross-operation financial
   unlocking and skipped native restoration before the fixes.
 
