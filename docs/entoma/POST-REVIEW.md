@@ -2,6 +2,12 @@
 
 Original review baseline: `09fe23ec5e7a183fe2376f3e4150f1965fdcaac1`.
 Branch: `codex/entoma-solution-mvp`; existing Draft PR #1 only.
+Implementation: `3c65a423c7bf51105d9f3acffe7cbf1bcf52694e`.
+Final source/test candidate: `1b764e93d260a2e740949dc99d3908a6208fe652`.
+[CI 38208379068](https://github.com/pixingzoudaiyuexing/Entoma/actions/runs/38208379068)
+passed all three platform jobs for that exact candidate. The subsequent evidence
+commit changes documentation only; no further rebuild is needed.
+[Sanitized validation and artifact hashes](evidence/post-review-validation.json).
 
 The Project + Product Manager's authorized handoff records the original formal
 verdict **PASS WITH CONDITIONS** and five non-blocking findings. No separate
@@ -61,8 +67,16 @@ committed. Existing runtime evidence and prior installers are retained.
   NDK/JNI C++ and Flutter Release APK. Existing KGP migration warnings remain.
 - macOS: local `tool/build_mvp.sh macos` passed (universal core + Flutter Release).
   Existing Swift Package Manager adoption warnings remain.
-- Windows and final exact-commit platform build results are recorded in the
-  accompanying sanitized post-review evidence after existing CI completes.
+- Final exact-commit CI: macOS universal application/core + PKG/ZIP, Windows x64
+  application + Inno Setup EXE/ZIP, Android arm64 Go/NDK/JNI + APK all passed and
+  were downloaded into `dist/post-review/1b764e9/`. CI Mac/Windows each passed 120
+  Flutter tests; Android's Linux host passed 119 and explicitly skipped the one
+  native-manager disposal test (the portable facade tests still ran). All three
+  jobs passed analysis and core Go tests.
+- A final local Android build also passed at exact candidate `1b764e9`. Its APK
+  v2 signature verified, and Go build metadata names that SHA. Before Gradle
+  stripping, the merged core equals Go's output; after stripping, it equals the
+  APK core. This is package provenance, not device VPN acceptance.
 - A portability follow-up replaced the filesystem test's macOS-only channel mock
   with a platform-interface fixture (support/temp/download paths). The first
   Android-host CI test run exposed the unsupported downloads path; the same
@@ -110,8 +124,8 @@ commit recorded in evidence, inspect all five findings and the retained payment
 API limitation, then read the documentation-only evidence follow-up. Use:
 
 ```sh
-git diff 09fe23ec5e7a183fe2376f3e4150f1965fdcaac1 <source-commit>
-git diff --check 09fe23ec5e7a183fe2376f3e4150f1965fdcaac1 <source-commit>
+git diff 09fe23ec5e7a183fe2376f3e4150f1965fdcaac1 1b764e93d260a2e740949dc99d3908a6208fe652
+git diff --check 09fe23ec5e7a183fe2376f3e4150f1965fdcaac1 1b764e93d260a2e740949dc99d3908a6208fe652
 ```
 
 No merge has been performed. Recommend merging only after the required formal
