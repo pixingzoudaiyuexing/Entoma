@@ -165,7 +165,10 @@ class SolutionSession extends ChangeNotifier {
     _journalReady = true;
   }
 
-  Future<void> restore({bool removeLegacyCredentials = true}) async {
+  Future<bool> restore({
+    bool removeLegacyCredentials = true,
+    bool synchronizeProfiles = true,
+  }) async {
     final expected = generation;
     var storageRestored = false;
     try {
@@ -187,7 +190,7 @@ class SolutionSession extends ChangeNotifier {
       }
       await _loadJournal();
       final value = await vault.read();
-      if (expected != generation) return;
+      if (expected != generation) return false;
       if (value != null) {
         final data = object(jsonDecode(value));
         _token = string(data['token']);
@@ -209,9 +212,11 @@ class SolutionSession extends ChangeNotifier {
         notifyListeners();
       }
     }
-    if (storageRestored && expected == generation)
+    if (synchronizeProfiles && storageRestored && expected == generation) {
       await onAccountChange?.call(email);
+    }
     if (authenticated && expected == generation) unawaited(refreshAccount());
+    return storageRestored && expected == generation;
   }
 
   Future<void> authenticate(

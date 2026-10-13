@@ -59,9 +59,8 @@ class ApplicationState extends ConsumerState<Application> {
       }
       final session = ref.read(solutionSessionProvider);
       session.onAccountChange = ref.read(solutionSubscriptionProvider).keepOnly;
-      await session.restore();
       try {
-        await globalState.appController.init();
+        await globalState.appController.restoreSessionAndInit(session);
         globalState.appController.initLink();
         app?.initShortcuts();
         if (session.authenticated) unawaited(_refreshSolutionSubscription());
