@@ -1,6 +1,6 @@
 # Entoma 设备后修复交付 — 2026-10-15
 
-总体：**PARTIAL / RELEASE BLOCKED**。已完成授权范围内的代码修复、可执行真机测试、构建和独立复审材料；长期 macOS 授权体验、Windows 实机以及新的正式独立审核仍未闭环。没有创建 Release、对外分发、修改生产/Solution/V2Board 或执行真实资金业务。
+总体：**PARTIAL / RELEASE BLOCKED**。已完成授权范围内的代码修复、可执行真机测试、构建和独立复审材料。2026-10-15 VNC恢复后，Windows新包、系统代理、TUN、实际节点切换、故障重连、退出恢复及登出已补测通过；完整平台边界、长期macOS授权体验、新正式独立审核与组合候选仍未闭环。没有创建 Release、对外分发、修改生产/Solution/V2Board 或执行真实资金业务。
 
 ## Git 与审核边界
 
@@ -22,7 +22,7 @@ PR #2 已正常合并，合并提交及最终 main 为 `0c77d0b8f337405fbacea833
 | ENTOMA-NET-001 | 本 Huawei 重连修复 PASS / 正式审核待完成 | 单独修正设备名被压力测试否证；最终使用实际 TUN 名严格绑定 + wildcard 本地转发监听，失败拒绝启动，修复部分启动 FD/stack 清理。mixed 默认及 pinned 内核不变。其他 ROM/IPv6/性能能耗未验收。 |
 | ENTOMA-PKG-001 | 目标普通包真机测试 PASS（限定范围） | 实际使用 `com.entoma.client`、诊断关闭的普通 APK，非 QA 包。Owner 授权移除旧 CI 签名测试数据后全新安装；固定本地签名后 install-r/冷启动保持成功。**旧 CI 签名原地升级保留数据未验证**，固定签名发行治理仍待补。 |
 | macOS 重复授权 / 历史 TUN 超时 | PARTIAL | 共用精确 network right/串行写入/归属快照；正常退出等待恢复；授权/进程启动 5 分钟与 IPC 60 秒分别计时。实机代理、TUN 重连/退出恢复通过；本机 network right 委托 nonshared/30 秒策略，短时间复用有效，过期仍需授权，长期免弹窗未实现。 |
-| Windows 新包与 TUN | BLOCKED | 账号锁定且服务商 VNC 维护；未再次尝试登录，也未做无带外恢复的 TUN 操作。CI 安装包含八个 MSVC Runtime DLL，实际新包安装/运行/TUN仍待验收。 |
+| Windows 新包与 TUN | 核心场景PASS / 完整平台PARTIAL | VNC恢复后已实际安装精确95285a5候选，核验GUI/core哈希、8个MSVC DLL，登录保持、系统代理/TUN真实转发、UI节点切换、故障恢复、正常退出及登出通过。RDP仍0xd07；纯API离线/干净OS等未验证。详见 `WINDOWS-DEVICE-20261015.md`。 |
 
 ## Android 实机与异常证据
 
@@ -66,7 +66,7 @@ Journal全部记录和 witness 同时永久丢失、匹配旧快照回滚、清�
 | 测试安装包（均未正式发布） | 对应源码 | SHA-256 | 设备状态 |
 | --- | --- | --- | --- |
 | `dist/post-device/0c77d0b8/Entoma-95285a5-android-arm64-test.apk` | 95285a5，普通本地release构建，诊断关闭，固定开发签名 | `cd3514570166a46e2ea6c469e9d5669de7d943d33cb37de48ecd2444bd0f2066` | 此精确APK已在正式包名真机验收上述范围 |
-| `dist/post-device/0c77d0b8/ci-net-95285a5/windows/Entoma-0.1.0-windows-x64-setup.exe` | 95285a5，CI38594076691 | `5a14c951af92e038f126b78ac02b12d0af879fbde4e5b3f825e64f68e8acc625` | 已取回；zip验证八MSVC DLL；新安装/DPAPI/WinINet/TUN/退出未实测 |
+| `dist/post-device/0c77d0b8/ci-net-95285a5/windows/Entoma-0.1.0-windows-x64-setup.exe` | 95285a5，CI38594076691 | `5a14c951af92e038f126b78ac02b12d0af879fbde4e5b3f825e64f68e8acc625` | 此精确安装器及GUI/core已在Windows11控制台核验，上述安装/会话/WinINet/TUN/退出通过；不读取DPAPI明文，不冒充干净OS运行库验收 |
 | `dist/post-device/0c77d0b8/ci-macos-1f11aa8/macos/Entoma-0.1.0-macos.pkg` | 1f11aa8，CI38543405272 | `f4b9508d11f551f337da4cb43fda8c640a3eaf0f7f470aa12fbb2f05d9d1bb85` | 已取回，PKG未签名；本轮真机运行同源码本地App，不冒充此精确CI PKG安装验证 |
 
 以上包不包含所有三项PR组合。Android CI ephemeral签名包与本机固定签名包不同；不互相替代哈希/升级证据。二进制和原始测试证据保存在 ignored `dist/`，未把安装包或任何凭据提交Git。
@@ -90,8 +90,8 @@ Journal全部记录和 witness 同时永久丢失、匹配旧快照回滚、清�
 
 1. 正式 Security/Native/Permission Delta Re-review通过，随后构建精确组合候选、三端回归及批准合并；当前不建议直接合并三个Draft。
 2. macOS长期授权UX方案需上游单独批准；本轮没有引入新常驻特权组件。
-3. 恢复Windows账号及实时VNC/KVM后，使用新包验证安装/MSVC、登录保持、系统代理、TUN真实节点和恢复；无带外恢复不测试TUN。
-4. 普通包节点卡实际交互的完整链证据、广泛Android ROM/IPv6、真实故障/长后台、发行签名及保留数据升级仍需验收。公开内测/正式发布条件均未达到；可继续受控设备测试。
+3. Windows已在实时VNC下完成新包、会话、系统代理、TUN真实节点和恢复补测；保留纯API故障/完整断网/睡眠/标准用户UAC/干净OS与签名边界。RDP仍锁定，没有绕过或更改策略。详见 `WINDOWS-DEVICE-20261015.md`，不重复已通过项。
+4. Android普通包节点卡实际交互的完整链证据、广泛Android ROM/IPv6、Android真实核心故障/各平台长后台、发行签名及保留数据升级仍需验收；本轮Windows节点卡与核心异常恢复结果不被这些待测项覆盖。公开内测/正式发布条件均未达到；可继续受控设备测试。
 
 ## Specialist 使用记录
 
@@ -104,3 +104,5 @@ agy Specialist Calls: **8**
 
 Embedded Review Calls: **5 / 1 completed / 4 failed / 2 re-review**。
 所有调用中2 completed、6 failed（超时/权限/旧模型路由失败）；失败调用也计数。新规则后的有效路线仅 `gemini-3.8-flash-high / high`，未绕过headless权限，未据同模型重复调用宣称跨模型独立意见。内嵌建议均经实际源码/故障回归裁决，正式独立审核仍为独立未完成门禁。
+
+Windows VNC跟进仅文档/设备证据，新增agy调用0；上述8次为连续修复任务历史累计。Windows具体操作、证据、非阻断日志搜索关闭问题和未验证项见 `WINDOWS-DEVICE-20261015.md`。没有修改运行时代码，未重复精确CI已构建的三端产物。
