@@ -103,7 +103,7 @@ func acceptanceForwarder(listener any, tunFd int) (result map[string]any) {
 func entomaAcceptanceTunSnapshot() *C.char {
 	androidTun.mu.Lock()
 	defer androidTun.mu.Unlock()
-	state := map[string]any{"active": false}
+	state := map[string]any{"active": false, "mode": tunnel.Mode().String()}
 	if handler, ok := androidTun.active.(*TunHandler); ok && handler.listener != nil {
 		state["active"] = true
 		state["stack"] = handler.listener.Config().Stack.String()

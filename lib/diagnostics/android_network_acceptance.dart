@@ -9,6 +9,7 @@ import 'package:ffi/ffi.dart';
 
 import 'package:fl_clash/clash/clash.dart';
 import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/solution/session.dart';
 import 'package:fl_clash/state.dart';
@@ -60,7 +61,7 @@ Future<void> _stopAndConfirm() async {
 }
 
 Future<Map<String, Object?>> _probe(String node,
-    {bool coreProxy = false}) async {
+    {bool coreProxy = false, String? group, String? originalNode}) async {
   final client = HttpClient()
     ..findProxy = (_) => coreProxy
         ? 'PROXY 127.0.0.1:${globalState.config.patchClashConfig.mixedPort}'
@@ -96,6 +97,10 @@ Future<Map<String, Object?>> _probe(String node,
       'family': 'default',
       'selectedNodeObserved':
           chains.any((c) => c.contains(node) && !c.contains('DIRECT')),
+      if (group != null)
+        'chosenGroupObserved': chains.any((c) => c.contains(group)),
+      if (originalNode != null)
+        'originalNodeObserved': chains.any((c) => c.contains(originalNode)),
       'inboundTypes':
           matching.map((c) => (c['metadata'] as Map)['type']).toSet().toList()
     };
@@ -245,11 +250,28 @@ Future<void> runAndroidNetworkAcceptance() async {
       }
       final alternate = group.all
           .firstWhere((p) => p.name != node && p.type == 'Shadowsocks');
-      await controller.changeProxy(
-          groupName: group.name, proxyName: alternate.name);
-      _record({'phase': 'node_switch', 'probe': await _probe(alternate.name)});
-      await controller.changeProxy(groupName: group.name, proxyName: node);
-      _record({'phase': 'node_restore', 'probe': await _probe(node)});
+      final switchResult = await clashCore.changeProxy(
+          ChangeProxyParams(groupName: group.name, proxyName: alternate.name));
+      final switchedGroup = (await clashCore.getProxiesGroups())
+          .firstWhere((g) => g.name == group.name);
+      _record({
+        'phase': 'node_switch',
+        'coreAccepted': switchResult.isEmpty,
+        'selectedGroupNowMatches': switchedGroup.now == alternate.name,
+        'actualMode': (await _snapshot())['coreTun']['mode'],
+        'probe':
+            await _probe(alternate.name, group: group.name, originalNode: node)
+      });
+      final restoreResult = await clashCore.changeProxy(
+          ChangeProxyParams(groupName: group.name, proxyName: node));
+      final restoredGroup = (await clashCore.getProxiesGroups())
+          .firstWhere((g) => g.name == group.name);
+      _record({
+        'phase': 'node_restore',
+        'coreAccepted': restoreResult.isEmpty,
+        'selectedGroupNowMatches': restoredGroup.now == node,
+        'probe': await _probe(node, group: group.name)
+      });
       _record({'phase': 'background_window'});
       await Future<void>.delayed(const Duration(seconds: 25));
       _record({
