@@ -5,6 +5,7 @@ import 'package:fl_clash/models/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'constant.dart';
+import '../solution/journal_storage.dart' show journalWitnessPrefix;
 
 class Preferences {
   static Preferences? _instance;
@@ -56,7 +57,13 @@ class Preferences {
 
   clearPreferences() async {
     final sharedPreferencesIns = await sharedPreferencesCompleter.future;
-    sharedPreferencesIns?.clear();
+    // Resetting appearance/configuration must never reset payment integrity.
+    if (sharedPreferencesIns == null) return;
+    for (final key in sharedPreferencesIns.getKeys()) {
+      if (!key.startsWith(journalWitnessPrefix)) {
+        await sharedPreferencesIns.remove(key);
+      }
+    }
   }
 }
 

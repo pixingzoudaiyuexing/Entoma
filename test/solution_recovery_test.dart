@@ -168,6 +168,11 @@ void main() {
     expect(session.orderOperationPending('order-1'), true);
     vault.failWrites = false;
     await session.readOrder('order-1', session.generation);
+    expect(session.orderOperationPending('order-1'), true);
+    // A read can display authoritative status during quarantine, but clearing a
+    // lock requires a successful integrity reload and durable completion.
+    await session.restore(removeLegacyCredentials: false);
+    await session.readOrder('order-1', session.generation);
     expect(session.orderOperationPending('order-1'), false);
   });
   test('late old-account order response cannot clear new-account journal',
