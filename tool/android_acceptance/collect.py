@@ -41,11 +41,14 @@ def negative_lan(row):
  except (OSError,TimeoutError): accepted=False
  record({'phase':'lan_negative','stack':row['stack'],'proxy':row['proxy'],'cycle':row['cycle'],'acceptedOnWifi':accepted,'controlReachable':reachable,'port':port,'sameListenerReported':forwarder.get('bindingMatchesTun')})
 p=subprocess.Popen([adb,'-d','logcat','-v','raw','-T','1','flutter:I','*:S'],stdout=subprocess.PIPE,text=True)
+started=False
 try:
  for line in p.stdout:
   if 'ENTOMA_NET ' not in line: continue
   try: row=json.loads(line.split('ENTOMA_NET ',1)[1])
   except Exception: continue
+  if row.get('phase')=='waiting_for_existing_session': started=True
+  if not started: continue
   record(row)
   if row.get('phase')=='connected':
    t=threading.Thread(target=negative_lan,args=(row,));t.start();workers.append(t)
