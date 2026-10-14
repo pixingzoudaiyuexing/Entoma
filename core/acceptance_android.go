@@ -11,8 +11,13 @@ import (
 
 // Read immutable listener metadata under the lifecycle lock. Reflection stays
 // test-only and read-only; it never writes pointers or vendor state.
-func acceptanceForwarder(listener any, tunFd int) map[string]any {
-	result := map[string]any{}
+func acceptanceForwarder(listener any, tunFd int) (result map[string]any) {
+	result = map[string]any{}
+	defer func() {
+		if recover() != nil {
+			result = map[string]any{"diagnosticUnavailable": true}
+		}
+	}()
 	value := reflect.ValueOf(listener).Elem().FieldByName("tunStack")
 	if !value.IsValid() || value.IsNil() {
 		return result
