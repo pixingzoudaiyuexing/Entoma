@@ -1,5 +1,5 @@
 diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
-index 3549d474..b0a9e7fb 100644
+index 3549d474..c344b2a2 100644
 --- a/listener/sing_tun/server.go
 +++ b/listener/sing_tun/server.go
 @@ -420,6 +420,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
@@ -10,14 +10,17 @@ index 3549d474..b0a9e7fb 100644
  	l.dnsServerIp = dnsServerIp
  	// after tun.New sing-tun has set DNS to TUN interface
  	resolver.AddSystemDnsBlacklist(dnsServerIp...)
-@@ -437,23 +438,38 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+@@ -437,23 +438,41 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
  	}
  
  	if options.FileDescriptor > 0 {
 -		if tunName, err := getTunnelName(int32(options.FileDescriptor)); err != nil {
 +		tunName, nameErr := getTunnelName(int32(options.FileDescriptor))
 +		if runtime.GOOS == "android" && (nameErr != nil || tunName == "") {
-+			err = fmt.Errorf("cannot identify Android TUN interface: %w", nameErr)
++			err = fmt.Errorf("cannot identify Android TUN interface: empty name")
++			if nameErr != nil {
++				err = fmt.Errorf("cannot identify Android TUN interface: %w", nameErr)
++			}
 +			return
 +		}
 +		if nameErr == nil {
@@ -64,7 +67,7 @@ new file mode 100644
 +import tun "github.com/metacubex/sing-tun"
 +
 +func closeFailedMixedStack(stack tun.Stack) {
-+	if mixed, ok := stack.(*tun.Mixed); ok {
++	if mixed, ok := stack.(*tun.Mixed); ok && mixed != nil && mixed.System != nil {
 +		_ = mixed.System.Close()
 +	}
 +}
