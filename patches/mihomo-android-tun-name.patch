@@ -1,0 +1,12 @@
+diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
+--- a/listener/sing_tun/server.go
++++ b/listener/sing_tun/server.go
+@@ -437,7 +437,7 @@
+ 	}
+ 
+ 	if options.FileDescriptor > 0 {
+-		if tunName, err := getTunnelName(int32(options.FileDescriptor)); err != nil {
++		if tunName, err := getTunnelName(int32(options.FileDescriptor)); err == nil {
+ 			stackOptions.TunOptions.Name = tunName
+ 			stackOptions.ForwarderBindInterface = true
+ 		}
