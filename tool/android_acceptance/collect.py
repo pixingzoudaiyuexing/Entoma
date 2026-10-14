@@ -15,12 +15,20 @@ def record(v):
  print(json.dumps(v),flush=True)
 def probe(row):
  cmd=[adb,'-d','shell','CLASSPATH=/data/local/tmp/entoma-https-probe.dex','app_process','/system/bin','EntomaHttpsProbe','https://www.cloudflare.com/cdn-cgi/trace?entoma_acceptance=android_matrix','hold']
- result=subprocess.run(cmd,capture_output=True,text=True,timeout=24)
- try: data=json.loads(result.stdout.strip())
- except Exception: data={'probeOutputInvalid':True}
- record({'phase':'shell_probe','stack':row['stack'],'proxy':row['proxy'],'cycle':row['cycle'],'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'exit':result.returncode,'https':data})
+ try:
+  result=subprocess.run(cmd,capture_output=True,text=True,timeout=23)
+  code=result.returncode
+  try: data=json.loads(result.stdout.strip())
+  except Exception: data={'probeOutputInvalid':True}
+ except subprocess.TimeoutExpired:
+  code=-1;data={'probeTimedOut':True}
+ except OSError:
+  code=-1;data={'probeUnavailable':True}
+ record({'phase':'shell_probe','stack':row['stack'],'proxy':row['proxy'],'cycle':row['cycle'],'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'exit':code,'https':data})
 def negative_lan(row):
- data=subprocess.check_output([adb,'-d','shell','ip','-4','-o','addr','show','dev','wlan0'],text=True)
+ try: data=subprocess.check_output([adb,'-d','shell','ip','-4','-o','addr','show','dev','wlan0'],text=True,timeout=5)
+ except (OSError,subprocess.SubprocessError):
+  record({'phase':'lan_negative','stack':row['stack'],'proxy':row['proxy'],'cycle':row['cycle'],'unavailable':True});return
  match=re.search(r'inet (\d+\.\d+\.\d+\.\d+)/',data)
  forwarder=row['native']['coreTun'].get('forwarder',{})
  if not match or not forwarder.get('wildcardListen'): return
@@ -31,7 +39,7 @@ def negative_lan(row):
  try:
   conn=socket.create_connection((match.group(1),port),timeout=1);conn.close();accepted=True
  except (OSError,TimeoutError): accepted=False
- record({'phase':'lan_negative','cycle':row['cycle'],'acceptedOnWifi':accepted,'controlReachable':reachable,'port':port,'sameListenerReported':forwarder.get('bindingMatchesTun')})
+ record({'phase':'lan_negative','stack':row['stack'],'proxy':row['proxy'],'cycle':row['cycle'],'acceptedOnWifi':accepted,'controlReachable':reachable,'port':port,'sameListenerReported':forwarder.get('bindingMatchesTun')})
 p=subprocess.Popen([adb,'-d','logcat','-v','raw','-T','1','flutter:I','*:S'],stdout=subprocess.PIPE,text=True)
 try:
  for line in p.stdout:

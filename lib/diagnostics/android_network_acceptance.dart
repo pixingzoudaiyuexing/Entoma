@@ -128,6 +128,20 @@ Future<void> runAndroidNetworkAcceptance() async {
         const Duration(minutes: 10));
     final originalVpn = container.read(vpnSettingProvider);
     final originalConfig = container.read(patchClashConfigProvider);
+    await _stopAndConfirm();
+    final invalidFdFixture = DynamicLibrary.open('libclash.so')
+        .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
+            'entomaAcceptanceInvalidTunCleanup');
+    final fixtureResult = invalidFdFixture();
+    try {
+      final result = jsonDecode(fixtureResult.toDartString()) as Map;
+      _record({'phase': 'invalid_fd_fixture', 'result': result});
+      if (result['rejected'] != true || result['ownedFdClosed'] != true) {
+        throw StateError('invalid TUN FD cleanup failed');
+      }
+    } finally {
+      calloc.free(fixtureResult);
+    }
     const node =
         String.fromEnvironment('ENTOMA_NETWORK_NODE', defaultValue: 'test');
     final groups = await clashCore.getProxiesGroups();

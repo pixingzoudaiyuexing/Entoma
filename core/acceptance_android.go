@@ -5,9 +5,41 @@ package main
 import "C"
 import (
 	"encoding/json"
+	MC "github.com/metacubex/mihomo/constant"
+	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/sing_tun"
+	"github.com/metacubex/mihomo/tunnel"
 	"golang.org/x/sys/unix"
+	"net/netip"
 	"reflect"
 )
+
+//export entomaAcceptanceInvalidTunCleanup
+func entomaAcceptanceInvalidTunCleanup() *C.char {
+	var pipe [2]int
+	result := map[string]any{}
+	if err := unix.Pipe(pipe[:]); err != nil {
+		encoded, _ := json.Marshal(map[string]any{"fixtureUnavailable": true})
+		return C.CString(string(encoded))
+	}
+	defer unix.Close(pipe[1])
+	listener, err := sing_tun.New(LC.Tun{
+		Enable: true, FileDescriptor: pipe[0], Device: "fixture",
+		Stack: MC.TunMixed, MTU: 9000,
+		Inet4Address: []netip.Prefix{netip.MustParsePrefix("198.18.254.1/30")},
+	}, tunnel.Tunnel)
+	result["rejected"] = err != nil
+	if listener != nil {
+		_ = listener.Close()
+	}
+	_, fdErr := unix.FcntlInt(uintptr(pipe[0]), unix.F_GETFD, 0)
+	result["ownedFdClosed"] = fdErr == unix.EBADF
+	if fdErr != unix.EBADF {
+		_ = unix.Close(pipe[0])
+	}
+	encoded, _ := json.Marshal(result)
+	return C.CString(string(encoded))
+}
 
 // Read immutable listener metadata under the lifecycle lock. Reflection stays
 // test-only and read-only; it never writes pointers or vendor state.
