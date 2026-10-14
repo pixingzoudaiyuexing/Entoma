@@ -212,7 +212,8 @@ Future<void> runAndroidNetworkAcceptance() async {
           }
         }
       }
-      final alternate = group.all.firstWhere((p) => p.name != node);
+      final alternate = group.all
+          .firstWhere((p) => p.name != node && p.type == 'Shadowsocks');
       await controller.changeProxy(
           groupName: group.name, proxyName: alternate.name);
       _record({'phase': 'node_switch', 'probe': await _probe(alternate.name)});
