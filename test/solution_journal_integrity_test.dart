@@ -61,6 +61,40 @@ class DelayedJournalVault extends MemoryVault {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('account refresh cannot move an authenticated token to another journal',
+      () async {
+    var changed = false;
+    var posts = 0;
+    final native = MemoryVault()
+      ..journal = jsonEncode({
+        'fixture@example.com': <String>[],
+        'other@example.com': ['checkout:order-1']
+      });
+    final vault = IntegritySessionVault(native, MemoryWitness());
+    final api = SolutionApi(client: MockClient((r) async {
+      if (r.method != 'GET') posts++;
+      if (changed && r.url.path == '/api/v1/me') {
+        return success({'email': 'other@example.com', 'status': 'active'});
+      }
+      return accountResponse(r);
+    }));
+    addTearDown(api.close);
+    final session = SolutionSession(api, vault);
+    await session.authenticate('fixture@example.com', 'fixture-password');
+    changed = true;
+    posts = 0;
+    await session.refreshAccount();
+    expect(session.authenticated, isFalse);
+    await expectLater(
+        session.mutate('checkout:order-1',
+            (m) => m.request('/api/v1/orders/order-1/checkout')),
+        throwsA(isA<SolutionError>()));
+    expect(posts, 0);
+    final entries = jsonDecode((await vault.readJournal())!) as Map;
+    expect(entries['other@example.com'], ['checkout:order-1']);
+    await session.authenticate('other@example.com', 'fixture-password');
+    expect(session.pendingMutations, contains('checkout:order-1'));
+  });
   test('Android native read never requests deletion or automatic migration',
       () async {
     final messenger =

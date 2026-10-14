@@ -454,13 +454,18 @@ class SolutionSession extends ChangeNotifier {
     final expected = generation;
     try {
       final me = object(await request('/api/v1/me'));
-      string(me['email']);
+      final canonicalEmail = string(me['email']);
       if (!{'active', 'expired', 'disabled'}.contains(me['status'])) {
         throw const SolutionError('INVALID_RESPONSE');
       }
       if (expected != generation) return;
+      if (canonicalEmail != email) {
+        // Refresh cannot silently rebind the token to another account's journal.
+        // Reauthentication loads the canonical identity before enabling writes.
+        await clear(expired: true);
+        return;
+      }
       account = me;
-      email = me['email'] as String;
       notice = null;
       notifyListeners();
       await Future.wait([
