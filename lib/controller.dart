@@ -18,6 +18,7 @@ import 'package:path/path.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'common/common.dart';
+import 'common/macos_exit.dart';
 import 'models/models.dart';
 import 'views/profiles/override_profile.dart';
 import 'solution/session.dart';
@@ -28,9 +29,55 @@ class AppController {
   ClashConfig? _acceptedConfig;
   bool _connecting = false;
   Future<void> _configurationQueue = Future.value();
+  final Set<Future<void>> _coreOperations = {};
+  late final _macOSExit = MacOSExitCoordinator(
+    prepareForExit: () async => await clashService?.cancelPendingLaunch(),
+    waitForConfiguration: _waitForCoreOperations,
+    restoreDns: () => system.setMacOSDns(true),
+    restoreProxy: () async => await proxy?.stopProxy() == true,
+    shutdown: () async {
+      await clashCore.shutdown();
+      await clashService?.destroy();
+    },
+    savePreferences: () async => await savePreferences(),
+    exit: () async => await system.exit(),
+  );
+  bool get isClosing => Platform.isMacOS && _macOSExit.isClosing;
+
+  Future<void> _coreOperation(Future<void> Function() action) {
+    if (!Platform.isMacOS) return action();
+    if (isClosing) return Future.value();
+    final operation = Future<void>.sync(action);
+    _coreOperations.add(operation);
+    operation.then<void>(
+      (_) => _coreOperations.remove(operation),
+      onError: (Object _, StackTrace __) {
+        _coreOperations.remove(operation);
+      },
+    );
+    return operation;
+  }
+
+  Future<void> _waitForCoreOperations() async {
+    while (true) {
+      final configuration = _configurationQueue;
+      await Future.wait([
+        configuration.catchError((_) {}),
+        for (final operation in _coreOperations.toList())
+          operation.catchError((_) {}),
+      ]);
+      if (_coreOperations.isEmpty &&
+          identical(configuration, _configurationQueue)) {
+        return;
+      }
+    }
+  }
+
   Future<T> _configure<T>(Future<T> Function() action) {
-    final operation =
-        _configurationQueue.catchError((_) {}).then((_) => action());
+    final operation = _configurationQueue.catchError((_) {}).then((_) {
+      if (isClosing) throw StateError('应用正在退出');
+      return action();
+    });
     _configurationQueue = operation.then<void>((_) {}, onError: (_) {});
     return operation;
   }
@@ -85,31 +132,39 @@ class AppController {
     }, args: [groupName, proxyName]);
   }
 
-  restartCore() async {
-    commonPrint.log("restart core");
-    await clashService?.reStart();
-    await _initCore();
-    if (_ref.read(runTimeProvider.notifier).isStart) {
-      await globalState.handleStart();
-    }
-  }
+  Future<void> restartCore() => _coreOperation(() async {
+        commonPrint.log("restart core");
+        await clashService?.reStart();
+        if (isClosing) return;
+        await _initCore();
+        if (isClosing) return;
+        if (_ref.read(runTimeProvider.notifier).isStart) {
+          await globalState.handleStart();
+        }
+      });
 
   updateStatus(bool isStart) async {
     if (isStart) {
-      if (system.isDesktop && clashService?.hasSession != true) {
-        await restartCore();
-      }
-      final selected = _ref.read(currentProfileProvider);
-      if (selected == null || !await selected.check())
-        throw StateError('请先刷新订阅或添加有效配置');
-      _connecting = true;
-      try {
-        await applyProfile(silence: true);
-        await globalState.handleStart([updateRunTime, updateTraffic]);
-      } finally {
-        _connecting = false;
-      }
-      addCheckIpNumDebounce();
+      await _coreOperation(() async {
+        if (system.isDesktop && clashService?.hasSession != true) {
+          await restartCore();
+        }
+        if (isClosing) return;
+        final selected = _ref.read(currentProfileProvider);
+        if (selected == null || !await selected.check()) {
+          throw StateError('请先刷新订阅或添加有效配置');
+        }
+        if (isClosing) return;
+        _connecting = true;
+        try {
+          await applyProfile(silence: true);
+          if (isClosing) return;
+          await globalState.handleStart([updateRunTime, updateTraffic]);
+        } finally {
+          _connecting = false;
+        }
+        if (!isClosing) addCheckIpNumDebounce();
+      });
     } else {
       await globalState.handleStop();
       await clashCore.resetTraffic();
@@ -183,7 +238,9 @@ class AppController {
   }
 
   Future<void> updateProfile(Profile profile) async {
+    if (isClosing) return;
     final newProfile = await profile.update();
+    if (isClosing) return;
     _ref
         .read(profilesProvider.notifier)
         .setProfile(newProfile.copyWith(isUpdating: false));
@@ -278,8 +335,10 @@ class AppController {
   }
 
   Future<void> _updateClashConfig() async {
-    final res =
-        await _requestAdmin(_ref.read(patchClashConfigProvider).tun.enable);
+    if (isClosing) return;
+    final res = await _requestAdmin(
+      _ref.read(patchClashConfigProvider).tun.enable,
+    );
     if (res.isError) {
       return;
     }
@@ -309,6 +368,7 @@ class AppController {
   }
 
   Future<Result<bool>> _requestAdmin(bool enableTun) async {
+    if (isClosing) return Result.error('');
     final realTunEnable = _ref.read(realTunEnableProvider);
     if (enableTun && !globalState.isStart && !_connecting) {
       return Result.success(false);
@@ -339,7 +399,9 @@ class AppController {
   }
 
   _setupClashConfig() async {
+    if (isClosing) return;
     await _ref.read(currentProfileProvider)?.checkAndUpdate();
+    if (isClosing) return;
     final patchConfig = _ref.read(patchClashConfigProvider);
     final res = await _requestAdmin(patchConfig.tun.enable);
     if (res.isError) {
@@ -352,6 +414,7 @@ class AppController {
       final params = await globalState.getSetupParams(
         pathConfig: realPatchConfig,
       );
+      if (isClosing) return;
       final message = await clashCore.setupConfig(params);
       if (message.isNotEmpty) {
         if (message.contains('rollback failed')) await updateStatus(false);
@@ -375,6 +438,7 @@ class AppController {
   }
 
   Future applyProfile({bool silence = false}) async {
+    if (isClosing) return;
     if (silence) {
       await _applyProfile();
     } else {
@@ -402,6 +466,7 @@ class AppController {
 
   autoUpdateProfiles() async {
     for (final profile in _ref.read(profilesProvider)) {
+      if (isClosing) return;
       if (!profile.autoUpdate) continue;
       final isNotNeedUpdate = profile.lastUpdateDate
           ?.add(
@@ -485,6 +550,12 @@ class AppController {
   }
 
   handleExit() async {
+    if (Platform.isMacOS) {
+      if (!await _macOSExit.requestExit()) {
+        globalState.showNotifier('退出尚未完成：系统网络设置或核心尚未安全恢复，请重试退出。');
+      }
+      return;
+    }
     Future.delayed(commonDuration, () {
       system.exit();
     });
@@ -609,21 +680,23 @@ class AppController {
     await init();
   }
 
-  Future<void> _initCore() async {
-    await prepareCore();
-    await applyProfile();
-  }
+  Future<void> _initCore() => _coreOperation(() async {
+        await prepareCore();
+        if (isClosing) return;
+        await applyProfile();
+      });
 
   init() async {
+    if (isClosing) return;
     FlutterError.onError = (details) {
       commonPrint.log(details.stack.toString());
     };
     updateTray(true);
     await _initCore();
+    if (isClosing) return;
     await _initStatus();
-    autoLaunch?.updateStatus(
-      _ref.read(appSettingProvider).autoLaunch,
-    );
+    if (isClosing) return;
+    autoLaunch?.updateStatus(_ref.read(appSettingProvider).autoLaunch);
     autoUpdateProfiles();
     autoCheckUpdate();
     if (!_ref.read(appSettingProvider).silentLaunch) {

@@ -3,17 +3,123 @@ import FlutterMacOS
 import Security
 import SystemConfiguration
 
-public class ProxyPlugin: NSObject, FlutterPlugin {
-  private struct Snapshot {
-    let service: String
-    let original: [String: Any]
-    let enabled: Bool
-    var applied: [String: Any]
-  }
-  private var restorationPending = false
-  private var snapshot: Snapshot?
+private final class MacNetworkSettingsBackend: NetworkSettingsBackend {
   private var preferences: SCPreferences?
   private var authorization: AuthorizationRef?
+  private var locked = false
+
+  private func authorizationReference() throws -> AuthorizationRef {
+    if let value = authorization { return value }
+    var value: AuthorizationRef?
+    guard AuthorizationCreate(nil, nil, [], &value) == errAuthorizationSuccess,
+          let value = value else { throw NetworkSettingsFailure.unavailable }
+    authorization = value
+    return value
+  }
+
+  func authorize() throws {
+    let auth = try authorizationReference()
+    // The SCPreferences helper requests this exact right for network settings.
+    // First reuse an existing grant; allow interaction only for an actual write.
+    let status: OSStatus = "system.services.systemconfiguration.network".withCString { name in
+      var item = AuthorizationItem(name: name, valueLength: 0, value: nil, flags: 0)
+      return withUnsafeMutablePointer(to: &item) { pointer in
+        var rights = AuthorizationRights(count: 1, items: pointer)
+        let cached = AuthorizationCopyRights(auth, &rights, nil, [], nil)
+        if cached == errAuthorizationSuccess { return cached }
+        DispatchQueue.main.sync { NSApp.activate(ignoringOtherApps: true) }
+        return AuthorizationCopyRights(auth, &rights, nil, [.extendRights, .interactionAllowed], nil)
+      }
+    }
+    if status == errAuthorizationCanceled { throw NetworkSettingsFailure.authorizationCancelled }
+    guard status == errAuthorizationSuccess else { throw NetworkSettingsFailure.authorizationDenied }
+  }
+
+  private func session() throws -> SCPreferences {
+    if let value = preferences { return value }
+    let auth = try authorizationReference()
+    guard let value = SCPreferencesCreateWithAuthorization(nil, "Entoma" as CFString, nil, auth) else {
+      throw NetworkSettingsFailure.unavailable
+    }
+    preferences = value
+    return value
+  }
+
+  func primaryService() throws -> String {
+    guard let store = SCDynamicStoreCreate(nil, "Entoma" as CFString, nil, nil) else {
+      throw NetworkSettingsFailure.unavailable
+    }
+    for family in ["IPv4", "IPv6"] {
+      if let state = SCDynamicStoreCopyValue(store, "State:/Network/Global/\(family)" as CFString) as? [String: Any],
+         let service = state["PrimaryService"] as? String { return service }
+    }
+    throw NetworkSettingsFailure.unavailable
+  }
+
+  private func networkProtocol(_ prefs: SCPreferences, kind: NetworkSettingKind,
+                               service: String) throws -> SCNetworkProtocol {
+    let type = kind == .proxy ? kSCNetworkProtocolTypeProxies : kSCNetworkProtocolTypeDNS
+    guard let network = SCNetworkServiceCopy(prefs, service as CFString),
+          let proto = SCNetworkServiceCopyProtocol(network, type) else {
+      throw NetworkSettingsFailure.unavailable
+    }
+    return proto
+  }
+
+  func read(_ kind: NetworkSettingKind, service: String) throws -> NetworkProtocolState {
+    let prefs: SCPreferences
+    if locked { prefs = try session() }
+    else {
+      // A fresh, unauthenticated reader makes no-op checks independent of the
+      // privileged helper. It also observes external changes before restoring.
+      guard let value = SCPreferencesCreate(nil, "Entoma read" as CFString, nil) else {
+        throw NetworkSettingsFailure.unavailable
+      }
+      prefs = value
+    }
+    let proto = try networkProtocol(prefs, kind: kind, service: service)
+    return NetworkProtocolState(configuration: SCNetworkProtocolGetConfiguration(proto) as? [String: Any],
+                                enabled: SCNetworkProtocolGetEnabled(proto))
+  }
+
+  func lock() throws {
+    let prefs = try session()
+    SCPreferencesSynchronize(prefs)
+    guard SCPreferencesLock(prefs, true) else { throw NetworkSettingsFailure.unavailable }
+    locked = true
+  }
+
+  func unlock() {
+    if locked, let prefs = preferences { SCPreferencesUnlock(prefs) }
+    locked = false
+  }
+
+  func synchronize() { if let prefs = preferences { SCPreferencesSynchronize(prefs) } }
+
+  func set(_ state: NetworkProtocolState, kind: NetworkSettingKind, service: String) throws {
+    guard locked else { throw NetworkSettingsFailure.unavailable }
+    let proto = try networkProtocol(session(), kind: kind, service: service)
+    let configuration = state.configuration.map { $0 as CFDictionary }
+    guard SCNetworkProtocolSetConfiguration(proto, configuration),
+          SCNetworkProtocolSetEnabled(proto, state.enabled) else { throw NetworkSettingsFailure.writeFailed }
+  }
+
+  func commit() throws {
+    let prefs = try session()
+    guard SCPreferencesCommitChanges(prefs) else { throw NetworkSettingsFailure.writeFailed }
+  }
+
+  func apply() throws {
+    let prefs = try session()
+    guard SCPreferencesApplyChanges(prefs) else { throw NetworkSettingsFailure.writeFailed }
+  }
+
+  deinit { if let auth = authorization { AuthorizationFree(auth, []) } }
+}
+
+public class ProxyPlugin: NSObject, FlutterPlugin {
+  private let queue = DispatchQueue(label: "com.entoma.network-settings")
+  private let owner = OwnedNetworkSettings(backend: MacNetworkSettingsBackend())
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "proxy", binaryMessenger: registrar.messenger)
@@ -21,136 +127,35 @@ public class ProxyPlugin: NSObject, FlutterPlugin {
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-    do {
-      switch call.method {
-      case "StartProxy":
-        guard let args = call.arguments as? [String: Any], let port = args["port"] as? Int,
-              (1024...65535).contains(port), let bypass = args["bypassDomain"] as? [String] else {
-          throw ProxyFailure.invalidInput
-        }
-        try start(port: port, bypass: bypass)
-        result(true)
-      case "StopProxy":
-        try stop()
-        result(true)
-      default: result(FlutterMethodNotImplemented)
-      }
-    } catch { result(false) }
-  }
-
-  private enum ProxyFailure: Error { case invalidInput, unavailable, changed, writeFailed }
-
-  private func session() throws -> SCPreferences {
-    if let value = preferences { SCPreferencesSynchronize(value); return value }
-    var auth: AuthorizationRef?
-    guard AuthorizationCreate(nil, nil, [.interactionAllowed], &auth) == errAuthorizationSuccess,
-          let value = SCPreferencesCreateWithAuthorization(nil, "Entoma" as CFString, nil, auth) else {
-      throw ProxyFailure.unavailable
-    }
-    authorization = auth
-    preferences = value
-    return value
-  }
-
-  private func networkProtocol(_ prefs: SCPreferences, serviceID: String) throws -> SCNetworkProtocol {
-    guard let service = SCNetworkServiceCopy(prefs, serviceID as CFString),
-          let proto = SCNetworkServiceCopyProtocol(service, kSCNetworkProtocolTypeProxies) else {
-      throw ProxyFailure.unavailable
-    }
-    return proto
-  }
-
-  private func primaryService() throws -> String {
-    guard let store = SCDynamicStoreCreate(nil, "Entoma" as CFString, nil, nil) else {
-      throw ProxyFailure.unavailable
-    }
-    for family in ["IPv4", "IPv6"] {
-      if let state = SCDynamicStoreCopyValue(store, "State:/Network/Global/\(family)" as CFString) as? [String: Any],
-         let service = state["PrimaryService"] as? String { return service }
-    }
-    throw ProxyFailure.unavailable
-  }
-
-  private func configuration(_ proto: SCNetworkProtocol) -> [String: Any] {
-    return SCNetworkProtocolGetConfiguration(proto) as? [String: Any] ?? [:]
-  }
-
-  private func commit(_ prefs: SCPreferences) throws {
-    guard SCPreferencesCommitChanges(prefs), SCPreferencesApplyChanges(prefs) else {
-      throw ProxyFailure.writeFailed
-    }
-  }
-
-  private func start(port: Int, bypass: [String]) throws {
-    guard !restorationPending else { throw ProxyFailure.writeFailed }
-    let prefs = try session()
-    guard SCPreferencesLock(prefs, true) else { throw ProxyFailure.unavailable }
-    defer { SCPreferencesUnlock(prefs) }
-    let id = try primaryService()
-    if let previous = snapshot, previous.service != id {
-      throw ProxyFailure.changed // Restore the old service before changing networks.
-    }
-    let proto = try networkProtocol(prefs, serviceID: id)
-    let current = configuration(proto)
-    if let previous = snapshot,
-       !NSDictionary(dictionary: current).isEqual(to: previous.applied) { throw ProxyFailure.changed }
-    var owned = snapshot ?? Snapshot(service: id, original: current,
-        enabled: SCNetworkProtocolGetEnabled(proto), applied: [:])
-    var next = current
-    for (enabled, host, number) in [
-      (kSCPropNetProxiesHTTPEnable, kSCPropNetProxiesHTTPProxy, kSCPropNetProxiesHTTPPort),
-      (kSCPropNetProxiesHTTPSEnable, kSCPropNetProxiesHTTPSProxy, kSCPropNetProxiesHTTPSPort),
-      (kSCPropNetProxiesSOCKSEnable, kSCPropNetProxiesSOCKSProxy, kSCPropNetProxiesSOCKSPort)
-    ] {
-      next[enabled as String] = 1
-      next[host as String] = "127.0.0.1"
-      next[number as String] = port
-    }
-    next[kSCPropNetProxiesProxyAutoConfigEnable as String] = 0
-    next[kSCPropNetProxiesProxyAutoDiscoveryEnable as String] = 0
-    next[kSCPropNetProxiesExceptionsList as String] = bypass
-    guard SCNetworkProtocolSetConfiguration(proto, next as CFDictionary),
-          SCNetworkProtocolSetEnabled(proto, true) else { throw ProxyFailure.writeFailed }
-    do { try commit(prefs) }
-    catch {
-      owned.applied = configuration(proto)
-      snapshot = owned
-      if SCNetworkProtocolSetConfiguration(proto, owned.original as CFDictionary),
-         SCNetworkProtocolSetEnabled(proto, owned.enabled), SCPreferencesCommitChanges(prefs) {
-        restorationPending = true
-        if SCPreferencesApplyChanges(prefs) { snapshot = nil; restorationPending = false }
-      }
-      throw error
-    }
-    owned.applied = configuration(proto)
-    snapshot = owned
-  }
-
-  private func stop() throws {
-    guard let owned = snapshot else { return } // Opening the app never changes user settings.
-    let prefs = try session()
-    guard SCPreferencesLock(prefs, true) else { throw ProxyFailure.unavailable }
-    defer { SCPreferencesUnlock(prefs) }
-    let proto = try networkProtocol(prefs, serviceID: owned.service)
-    let expected = restorationPending ? owned.original : owned.applied
-    guard NSDictionary(dictionary: configuration(proto)).isEqual(to: expected) else {
-      snapshot = nil
-      restorationPending = false
+    guard ["StartProxy", "StopProxy", "StartAutoDns", "StopAutoDns"].contains(call.method) else {
+      result(FlutterMethodNotImplemented)
       return
     }
-    if !restorationPending {
-      guard SCNetworkProtocolSetConfiguration(proto, owned.original as CFDictionary),
-            SCNetworkProtocolSetEnabled(proto, owned.enabled),
-            SCPreferencesCommitChanges(prefs) else { throw ProxyFailure.writeFailed }
-      restorationPending = true
+    let args = call.arguments as? [String: Any]
+    queue.async {
+      do {
+        switch call.method {
+        case "StartProxy":
+          guard let port = args?["port"] as? Int, let bypass = args?["bypassDomain"] as? [String] else {
+            throw NetworkSettingsFailure.invalidInput
+          }
+          try self.owner.startProxy(port: port, bypass: bypass)
+        case "StopProxy": try self.owner.stop(.proxy)
+        case "StartAutoDns": try self.owner.startAutoDns()
+        default: try self.owner.stop(.dns)
+        }
+        DispatchQueue.main.async { result(true) }
+      } catch {
+        let code: String
+        switch error {
+        case NetworkSettingsFailure.authorizationCancelled: code = "NETWORK_PERMISSION_CANCELLED"
+        case NetworkSettingsFailure.authorizationDenied: code = "NETWORK_PERMISSION_DENIED"
+        case NetworkSettingsFailure.changed: code = "NETWORK_SETTINGS_CHANGED"
+        case NetworkSettingsFailure.restoreFailed: code = "NETWORK_RESTORE_FAILED"
+        default: code = "NETWORK_SETTINGS_FAILED"
+        }
+        DispatchQueue.main.async { result(FlutterError(code: code, message: code, details: nil)) }
+      }
     }
-    guard SCPreferencesApplyChanges(prefs) else { throw ProxyFailure.writeFailed }
-    snapshot = nil
-    restorationPending = false
-  }
-
-  deinit {
-    try? stop()
-    if let auth = authorization { AuthorizationFree(auth, []) }
   }
 }

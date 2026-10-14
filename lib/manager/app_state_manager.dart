@@ -46,19 +46,21 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
         globalState.appController.savePreferencesDebounce();
       }
     });
-    ref.listenManual(
-      autoSetSystemDnsStateProvider,
-      (prev, next) async {
-        if (prev == next) {
-          return;
+    ref.listenManual(autoSetSystemDnsStateProvider, (prev, next) async {
+      if (prev == next) {
+        return;
+      }
+      final restore = (globalState.isInit && globalState.appController.isClosing) ||
+          next.a != true ||
+          next.b != true;
+      try {
+        if (!await system.setMacOSDns(restore) && mounted) {
+          globalState.showNotifier('自动 DNS 设置尚未完成，请检查系统权限后重试。');
         }
-        if (next.a == true && next.b == true) {
-          system.setMacOSDns(false);
-        } else {
-          system.setMacOSDns(true);
-        }
-      },
-    );
+      } catch (_) {
+        if (mounted) globalState.showNotifier('自动 DNS 设置尚未完成，请检查系统权限后重试。');
+      }
+    });
   }
 
   @override
@@ -67,8 +69,10 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
   }
 
   @override
-  void dispose() async {
-    await system.setMacOSDns(true);
+  void dispose() {
+    // Disposal cannot be awaited by Flutter. Normal macOS exit performs the
+    // authoritative awaited restore before closing the window.
+    unawaited(system.setMacOSDns(true).catchError((_) => false));
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
