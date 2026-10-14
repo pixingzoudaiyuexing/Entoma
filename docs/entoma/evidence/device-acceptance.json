@@ -103,7 +103,7 @@
     },
     "macos": {
       "device": "macOS 15.7.4 build24G517 arm64",
-      "status": "BLOCKED",
+      "status": "FAIL_REPEAT_NETWORK_PERMISSION_UX_UNRESOLVED_TUN_FLOW_PASS",
       "loginAccountSubscription": "PASS",
       "earlierControlledSystemProxyNodeHttps": "PASS",
       "earlierExactSnapshotRestoration": "PASS",
@@ -112,26 +112,159 @@
       "normalQuitWhileProxyActive": "NOT_TESTED_CONCLUSIVELY",
       "coldSessionAndFreshAccount": "PASS",
       "logoutColdAndProfiles": "PASS",
-      "tun": "BLOCKED_CORE_AUTHENTICATION_TIMEOUT",
-      "tunOwnerFollowup": "NO_ADMINISTRATOR_DIALOG_VISIBLE_REPORTED_BY_OWNER",
-      "tunTimeoutCause": "UNRESOLVED_NOT_ATTRIBUTED_TO_OWNER_AUTHORIZATION_DELAY",
-      "newUtunInterfaces": 0,
+      "tun": "PASS_OWNER_INITIATED_FORWARDING_DISCONNECT_RECONNECT_ACTIVE_TUN_QUIT",
+      "tunOwnerFollowup": "OWNER_SUBSEQUENTLY_CLICKED_CONNECT_ROOT_CORE_AND_UTUN6_OBSERVED",
+      "newUtunInterfaces": 1,
       "repeatNetworkPermissionPrompt": "UNRESOLVED_OWNER_REPORT_AND_OBSERVED_CLOSE_PROMPT",
       "finalCleanup": {
-        "capturedAt": "2026-10-14T04:29:21.637033+08:00",
-        "coldLoginRetained": true,
-        "coldAccountInformationRead": true,
-        "logoutConfirmed": true,
-        "coldRestartRemainedLoggedOut": true,
-        "ownedProfilesPageEmpty": true,
+        "capturedAt": "2026-10-14T13:12:40.345559+08:00",
+        "quitViaMenuWhileTunActive": true,
+        "appOrCoreProcesses": 0,
+        "utunInterfacesRestored": true,
+        "utun6Present": false,
+        "utun6RouteEntries": 0,
+        "allServiceNetworkSettingsRestored": true,
+        "effectiveProxyRestored": true,
         "systemProxyEnabled": false,
-        "tunOptionOffObserved": true,
         "listener17890Present": false,
-        "coreMayRemainIdle": true,
-        "credentialValuesRead": false,
-        "ordinaryReconnectAfterTunTimeoutSucceeded": true
+        "noUiReadAfterQuit": true,
+        "savedTunModeMayRemainSelected": true,
+        "testDidNotLogOutOrClearAccountProfileData": true
       },
-      "testedSource": "1b764e93d260a2e740949dc99d3908a6208fe652"
+      "testedSource": "1b764e93d260a2e740949dc99d3908a6208fe652",
+      "tunPriorAttempts": "BLOCKED_CORE_AUTHENTICATION_TIMEOUT_PRESERVED",
+      "tunPriorTimeoutCause": "UNRESOLVED_NOT_ATTRIBUTED_TO_OWNER_AUTHORIZATION_DELAY",
+      "normalQuitWhileTunActive": "PASS",
+      "ownerTunExactNetworkSnapshotRestoration": "PASS",
+      "ownerTunCycle": {
+        "capturedAt": "2026-10-14T13:14:34.007113+08:00",
+        "source": "1b764e93d260a2e740949dc99d3908a6208fe652",
+        "mergedBaseline": "66f24d28546a5304012a46dd1d24a9d85acd8b2c",
+        "coreSha256": "4d96596803de49ab7e50f7a0c0e3399dbefaafef6da286cff390587590784e4f",
+        "newUtunObservedAt": "2026-10-14T12:08:42.689532+08:00",
+        "interface": "utun6",
+        "firstHttps": {
+          "defaultTLSValidation": true,
+          "httpStatus": 200,
+          "request": "system URLSession; no explicit proxy override",
+          "responseBytes": 281,
+          "responseHash": "35995ab968c68e03f1fc1bba7bd2131ebb107c3198c61f138bbe256602b09c65",
+          "capturedAt": "2026-10-14T12:56:22.626982+08:00",
+          "mode": "TUN",
+          "explicitHttpProxy": false,
+          "requestedSelectedNode": "test",
+          "systemProxyEnabledAtProbe": false
+        },
+        "selectedNodeProof": {
+          "capturedAt": "2026-10-14T13:01:01.083166+08:00",
+          "interface": "utun6",
+          "before": {
+            "inputBytes": 1284055712,
+            "outputBytes": 638623995
+          },
+          "after": {
+            "inputBytes": 1284734650,
+            "outputBytes": 638963442
+          },
+          "inputByteDelta": 678938,
+          "outputByteDelta": 339447,
+          "https": {
+            "defaultTLSValidation": true,
+            "httpStatus": 200,
+            "request": "system URLSession; no explicit proxy override",
+            "responseBytes": 281,
+            "responseHash": "31cb86f4d839aaf67653e31d7ef537beb3c96ef1f142a7f8683f7110cfad052e"
+          },
+          "routeInterfaceForTarget": "utun6",
+          "observedSelectedNodeChain": {
+            "target": "www.cloudflare.com:443",
+            "node": "test",
+            "direct": false,
+            "coreLogTime": "2026-10-14T12:56:22.059006+08:00"
+          },
+          "nativeCoreUid": 0,
+          "nativeCorePid": 70099,
+          "counterCapturedAt": "2026-10-14T13:01:54.372489+08:00",
+          "counterMethod": "netstat -ibn -I utun6, seven numeric suffix columns",
+          "counterIntervalHttps": {
+            "defaultTLSValidation": true,
+            "httpStatus": 200,
+            "request": "system URLSession; no explicit proxy override",
+            "responseBytes": 280,
+            "responseHash": "3d5d56a3ad76530d43427b4b386184e752a8f06769776d2c5cda8f9c880bcaf9"
+          }
+        },
+        "disconnect": {
+          "capturedAt": "2026-10-14T13:05:47.395938+08:00",
+          "utunInterfacesRestored": true,
+          "utun6Present": false,
+          "utun6RouteEntries": 0,
+          "allServiceNetworkSettingsRestored": true,
+          "effectiveProxyRestored": true,
+          "systemProxyEnabled": false,
+          "listener17890Present": false,
+          "rootCorePresent": true,
+          "targetRouteInterface": "en0",
+          "exactRouteTableRestoration": "NOT_CLAIMED_DYNAMIC_ROUTE_COUNTER_HASH_UNSUITABLE"
+        },
+        "reconnect": {
+          "defaultTLSValidation": true,
+          "httpStatus": 200,
+          "request": "system URLSession; no explicit proxy override",
+          "responseBytes": 280,
+          "responseHash": "b381ec1fe0f24360c3287d6f32cd5a4600a233c96840e5c13c1490b1e871e7ab",
+          "capturedAt": "2026-10-14T13:07:37.054335+08:00",
+          "phase": "reconnect",
+          "systemProxyEnabled": false,
+          "utunInterfaces": [
+            "utun0",
+            "utun1",
+            "utun2",
+            "utun3",
+            "utun4",
+            "utun5",
+            "utun6"
+          ],
+          "targetRouteInterface": "utun6",
+          "rootCorePids": [
+            70099
+          ],
+          "securityAgentPresentAtReadback": false,
+          "selectedNodeChain": {
+            "target": "www.cloudflare.com:443",
+            "node": "test",
+            "direct": false,
+            "coreLogTime": "2026-10-14T13:07:36.376902+08:00"
+          }
+        },
+        "normalQuitWhileTunActive": {
+          "capturedAt": "2026-10-14T13:12:40.345559+08:00",
+          "quitViaMenuWhileTunActive": true,
+          "appOrCoreProcesses": 0,
+          "utunInterfacesRestored": true,
+          "utun6Present": false,
+          "utun6RouteEntries": 0,
+          "allServiceNetworkSettingsRestored": true,
+          "effectiveProxyRestored": true,
+          "systemProxyEnabled": false,
+          "listener17890Present": false,
+          "noUiReadAfterQuit": true,
+          "savedTunModeMayRemainSelected": true,
+          "testDidNotLogOutOrClearAccountProfileData": true
+        },
+        "status": "PASS",
+        "limits": [
+          "No silent permission or persistent helper claim",
+          "Earlier timed-out attempts remain historical evidence",
+          "Counter intervals include other background traffic",
+          "No new source or native permission change",
+          "Exact dynamic route-table equality is not claimed; owned route cleanup is verified"
+        ],
+        "screenshot": "macos-owner-tun-selected-node-redacted.png",
+        "ownerReportedClickedConnect": true,
+        "adminCoreUidZeroObserved": true,
+        "rootCoreObservedAt": "2026-10-14T12:08:39.639592+08:00"
+      }
     }
   },
   "security": {
@@ -155,5 +288,7 @@
     "embeddedRereview": 0
   },
   "nativeCredentialForensicRead": "NOT_PERFORMED",
-  "sandboxFileErasureForensics": "NOT_VERIFIED"
+  "sandboxFileErasureForensics": "NOT_VERIFIED",
+  "updatedAt": "2026-10-14T13:15:54.432144+08:00",
+  "timestamps": "capturedAt is the original report snapshot; updatedAt is the latest evidence update"
 }

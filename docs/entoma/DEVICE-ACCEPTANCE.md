@@ -1,5 +1,9 @@
 # Device acceptance — 2026-10-13 / 2026-10-14
 
+Update October 14: Owner manually initiated macOS TUN; real selected-node forwarding,
+disconnect, reconnect and normal exit while TUN was active passed. Earlier timeout
+attempts remain preserved. This update changes evidence only, not application code.
+
 Result: **PARTIAL; RELEASE PENDING**. This report supersedes the earlier device
 status snapshots, not the historical evidence. No payment, production deployment,
 release, database change, or merge was performed in this round.
@@ -46,14 +50,14 @@ results, Mock tests and build results remain separate.
 | STG login/account/subscription | PASS original and QA | PASS original | PASS accepted original |
 | Login after cold restart | PASS session; original core FAIL | PASS session and fresh account read | PASS session and fresh account information |
 | Cold core/config restore | FAIL original; PASS twice in final QA | PASS original | Ordinary startup PASS; timeout recovery requires explicit reconnect |
-| Selected-node real HTTPS | PASS original and QA; default TLS, no explicit HTTP proxy, core chain excludes DIRECT | PASS system proxy, default HTTPS and selected-node core chain | PASS earlier controlled system-proxy test with selected-node core chain |
-| Repeated TUN connection | FAIL mixed in original and QA; gVisor comparison passes two connections | BLOCKED | BLOCKED authentication deadline |
+| Selected-node real HTTPS | PASS original and QA; default TLS, no explicit HTTP proxy, core chain excludes DIRECT | PASS system proxy, default HTTPS and selected-node core chain | PASS earlier controlled system proxy and Owner-initiated TUN, selected-node core chains |
+| Repeated TUN connection | FAIL mixed in original and QA; gVisor comparison passes two connections | BLOCKED | PASS Owner-initiated start and reconnect; earlier deadline failures retained |
 | Background/node switch | PASS original; QA background NOT VERIFIED | NOT TESTED background/sleep | NOT TESTED sleep/wake |
-| Disconnect | PASS VPN agent/FGS/notice cleanup; no FD claim | PASS WinINet exact snapshot and port release | PASS earlier exact seven-service controlled snapshot; later restoration cycle INCONCLUSIVE for raw dictionary equality |
-| Normal exit | Process cold-stop tested; independent normal-exit-under-active-VPN NOT TESTED | PASS GUI/core/port gone and native snapshot restored | PASS after explicitly disabling proxy; active-proxy exit remains NOT TESTED conclusively |
+| Disconnect | PASS VPN agent/FGS/notice cleanup; no FD claim | PASS WinINet exact snapshot and port release | PASS Owner TUN cycle: seven-service network snapshot restored, owned interface/routes and port cleaned; earlier ambiguous proxy cycle retained |
+| Normal exit | Process cold-stop tested; independent normal-exit-under-active-VPN NOT TESTED | PASS GUI/core/port gone and native snapshot restored | PASS while TUN active; active-system-proxy exit remains NOT TESTED conclusively |
 | Logout then cold start | PASS final QA; profiles page empty | PASS original; profiles page empty | PASS original; profiles page empty |
 | Offline startup/LKG | PASS final QA, no active network, nodes retained after failed refresh | NOT TESTED | Earlier timeout LKG hash retained; complete API-outage test NOT TESTED |
-| Overall | **FAIL** default mixed reconnect; QA startup improvement verified | **BLOCKED** remaining environment-dependent tests | **BLOCKED** TUN; repeat permission prompt unresolved |
+| Overall | **FAIL** default mixed reconnect; QA startup improvement verified | **BLOCKED** remaining environment-dependent tests | **FAIL** repeat network-permission UX remains unresolved; tested TUN flow PASS |
 
 ### Actual forwarding evidence
 
@@ -82,6 +86,20 @@ disabled port/bypass fields and did not equal that cycle's baseline; no silent
 "exact restoration" claim is made for that cycle. Seven-service changes observed
 outside the earlier controlled window remain unattributed. Another proxy core was
 running; its presence does not establish responsibility.
+
+Owner-initiated macOS TUN on October 14: native root core PID 70099 appeared at
+12:08:39, then a new `utun6` at 12:08:42; the other six interfaces were pre-existing.
+System proxy remained OFF. Default URLSession HTTPS returned 200, with normal TLS
+validation and no explicit proxy; target route was `utun6`. The core log at
+12:56:22 showed `www.cloudflare.com:443` through `萌兔云[test]`, excluding DIRECT.
+The TUN interface counters increased; that interval also includes background traffic.
+Disconnect removed utun6 and its route entries, released port 17890, restored all
+seven service proxy/DNS settings and returned the target route to en0. Reconnect
+reused the same root core, returned HTTPS 200 and a fresh `test` chain at 13:07:36.
+Normal menu quit while TUN remained active left GUI/core counts 0, no owned interface,
+route or listener, and exact service/effective-proxy snapshot restoration. No UI read
+was made after quit before process/network verification. Full dynamic route-table
+equality is not claimed; its changing counters make a raw hash unsuitable.
 
 ## Confirmed defects and limitations
 
@@ -125,13 +143,18 @@ running; its presence does not establish responsibility.
    frequency within a short session is not proven. Current plugin caches an in-process
    AuthorizationRef but has no persistent helper. Do not bypass OS authorization or
    silently add a privileged service. Scope any helper/rights change for formal review.
-6. **macOS TUN — BLOCKED.** Final retry reports `Core authentication timed out`;
+6. **macOS TUN — PASS for the subsequent Owner-initiated cycle.** The earlier retry reported `Core authentication timed out`;
    no live core and no new utun interface (same six pre-existing interfaces).
    Owner subsequently reported that no administrator dialog was visible for this
    attempt. SecurityAgent was observed initially, but that does not prove a visible
    TUN prompt. The authorization/launch path remains unresolved; the timeout is not
    attributed to Owner declining or delaying authorization.
    TUN off plus explicit ordinary reconnect restored the core; then disconnected.
+   Owner subsequently clicked Connect with TUN selected and system proxy off;
+   an actual root core and new utun6 appeared. Real selected-node HTTPS, disconnect,
+   reconnect and normal exit while TUN active passed as described above. The earlier
+   timeout remains an unresolved failure path; this success does not prove reliable
+   unattended authorization or resolve the separate repeated network-setting prompt.
 7. **Windows remaining tests — BLOCKED.** Service-provider VNC reports connection
    failure; Owner confirms maintenance. RDP reconnect reports account locked,
    `0xd07`; no repeated credential attempts or bypass. TUN was never started and
@@ -173,6 +196,11 @@ and validated, QA process stopped, no active QA VPN/foreground service. Original
 data was preserved. QA gVisor setting is a documented comparison setting, not a new
 default. Temporary diagnostic logging/settings were used; these are not release defaults.
 macOS ended disconnected with TUN/system proxy off and the account logged out.
+In the subsequent Owner-initiated TUN cycle, an account-owned subscription profile
+was available before testing. The app ended fully exited with no active owned
+TUN/port/system proxy; this test did not log out or clear account/profile data.
+The saved TUN mode may remain selected,
+which does not itself mean a running connection.
 
 agy Specialist Calls: 3 — Research Scout 0; Root-Cause Challenger 2; Design Challenger 0;
 Test Designer 0; Embedded Reviewer 1. One challenge completed, one was denied read
