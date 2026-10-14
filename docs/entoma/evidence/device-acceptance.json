@@ -113,6 +113,8 @@
       "coldSessionAndFreshAccount": "PASS",
       "logoutColdAndProfiles": "PASS",
       "tun": "BLOCKED_CORE_AUTHENTICATION_TIMEOUT",
+      "tunOwnerFollowup": "NO_ADMINISTRATOR_DIALOG_VISIBLE_REPORTED_BY_OWNER",
+      "tunTimeoutCause": "UNRESOLVED_NOT_ATTRIBUTED_TO_OWNER_AUTHORIZATION_DELAY",
       "newUtunInterfaces": 0,
       "repeatNetworkPermissionPrompt": "UNRESOLVED_OWNER_REPORT_AND_OBSERVED_CLOSE_PROMPT",
       "finalCleanup": {

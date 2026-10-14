@@ -127,7 +127,10 @@ running; its presence does not establish responsibility.
    silently add a privileged service. Scope any helper/rights change for formal review.
 6. **macOS TUN — BLOCKED.** Final retry reports `Core authentication timed out`;
    no live core and no new utun interface (same six pre-existing interfaces).
-   Completion of administrator authorization within the deadline was not confirmed.
+   Owner subsequently reported that no administrator dialog was visible for this
+   attempt. SecurityAgent was observed initially, but that does not prove a visible
+   TUN prompt. The authorization/launch path remains unresolved; the timeout is not
+   attributed to Owner declining or delaying authorization.
    TUN off plus explicit ordinary reconnect restored the core; then disconnected.
 7. **Windows remaining tests — BLOCKED.** Service-provider VNC reports connection
    failure; Owner confirms maintenance. RDP reconnect reports account locked,
