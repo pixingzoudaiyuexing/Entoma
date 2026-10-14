@@ -45,19 +45,12 @@ Future<void> _stopAndConfirm() async {
 }
 
 Future<Map<String, Object?>> _probe(String node,
-    {bool ipv4 = false, bool coreProxy = false}) async {
+    {bool coreProxy = false}) async {
   final client = HttpClient()
     ..findProxy = (_) => coreProxy
         ? 'PROXY 127.0.0.1:${globalState.config.patchClashConfig.mixedPort}'
         : 'DIRECT';
   client.connectionTimeout = const Duration(seconds: 12);
-  if (ipv4) {
-    client.connectionFactory = (uri, _, __) async {
-      final addresses = await InternetAddress.lookup(uri.host,
-          type: InternetAddressType.IPv4);
-      return Socket.startConnect(addresses.first, uri.port);
-    };
-  }
   try {
     final request = await client.getUrl(Uri.parse(
         'https://www.cloudflare.com/cdn-cgi/trace?entoma_acceptance=android_matrix'));
@@ -76,7 +69,7 @@ Future<Map<String, Object?>> _probe(String node,
       'bytes': bytes,
       'defaultTLS': true,
       'explicitProxy': coreProxy,
-      'family': ipv4 ? 'IPv4' : 'default',
+      'family': 'default',
       'selectedNodeObserved':
           chains.any((c) => c.contains(node) && !c.contains('DIRECT')),
       'inboundTypes':
@@ -86,7 +79,7 @@ Future<Map<String, Object?>> _probe(String node,
     return {
       'errorClass': error.runtimeType.toString(),
       if (error is SocketException) 'errno': error.osError?.errorCode,
-      'family': ipv4 ? 'IPv4' : 'default',
+      'family': 'default',
       'explicitProxy': coreProxy
     };
   } finally {
@@ -160,13 +153,22 @@ Future<void> runAndroidNetworkAcceptance() async {
                 groupName: group.name, proxyName: node);
             await Future<void>.delayed(const Duration(milliseconds: 500));
             _record({
+              'phase': 'connected',
+              'stack': cell.$1.name,
+              'proxy': cell.$2,
+              'cycle': cycle,
+              'native': await _snapshot()
+            });
+            // A bounded window for the independent adb-shell HTTPS probe.
+            // Its results cannot be substituted with this app's own requests.
+            await Future<void>.delayed(const Duration(seconds: 25));
+            _record({
               'phase': 'probe',
               'stack': cell.$1.name,
               'proxy': cell.$2,
               'cycle': cycle,
               'native': await _snapshot(),
               'default': await _probe(node),
-              'ipv4': await _probe(node, ipv4: true),
               'coreProxyControl': await _probe(node, coreProxy: true)
             });
           } catch (error) {
@@ -181,7 +183,7 @@ Future<void> runAndroidNetworkAcceptance() async {
         }
       }
     } finally {
-      await controller.updateStatus(false);
+      await _stopAndConfirm();
       container
           .read(vpnSettingProvider.notifier)
           .updateState((_) => originalVpn);
