@@ -1,0 +1,88 @@
+{
+  "date": "2026-10-15 Asia/Shanghai",
+  "runtime": "95285a5f9485c8a9ace615d76c171490fa48d8cc",
+  "device": {
+    "os": "Windows11 Pro",
+    "version": "10.0.26300",
+    "build": "26300",
+    "architecture": "x64",
+    "access": "authorized live VNC console",
+    "rdp": "BLOCKED_0xd07"
+  },
+  "overall": "PARTIAL",
+  "coreAcceptance": "PASS_SCOPED",
+  "installation": "PASS_EXACT_INSTALLER_AND_GUI_CORE_HASHES",
+  "includedRuntimeDllCount": 8,
+  "pristineRuntimeDependencyAcceptance": "NOT_TESTED_PREVIOUS_OWNER_RUNTIME_INSTALL",
+  "realStgLoginAccountSubscription": "PASS",
+  "coldSessionRetention": "PASS",
+  "systemProxy": {
+    "https": 200,
+    "usesSystemProxy": true,
+    "defaultTLS": true,
+    "selectedNodeChain": "test",
+    "initialFlags": 9,
+    "connectedFlags": 3,
+    "originalFourValuesRestored": true,
+    "activeQuitGuiCoreCount": 0,
+    "activeQuitListenerCount": 0,
+    "fullNetworkSnapshotRestored": true
+  },
+  "tun": {
+    "firstHttps": 200,
+    "httpProxyUsed": false,
+    "defaultTLS": true,
+    "actualAdapter": "Entoma",
+    "actualInterfaceIndex": 10,
+    "targetRouteUsesTun": true,
+    "selectedTestChain": true,
+    "successfulSessionsBeforeFault": 3,
+    "reconnectHttpsStatuses": [
+      200,
+      200
+    ],
+    "uiAlternateNodeCardClick": true,
+    "newConnectionAlternateNodeChain": true,
+    "shortGuiBackgroundHttps": 200,
+    "ownedCoreFaultPid": 2624,
+    "faultPathGuarded": true,
+    "activeFaultRecoveryByUserConnect": true,
+    "postRecoveryHttps": 200,
+    "postRecoveryChainSeparatelyCaptured": false,
+    "activeQuitFullNetworkRestored": true,
+    "activeQuitGuiCoreCount": 0,
+    "activeQuitListenerCount": 0
+  },
+  "logout": {
+    "returnedToLogin": true,
+    "coldStartUnauthenticated": true,
+    "ownedAccountNodesEmpty": true,
+    "securePlaintextRead": false
+  },
+  "apiOffline": {
+    "result": "NOT_VERIFIED",
+    "onlyGui443TemporaryRule": true,
+    "actualApiFailureConfirmed": false,
+    "firewallProfilesEnabled": [
+      true,
+      true,
+      true
+    ],
+    "remainingOwnRuleCount": 0,
+    "ownRuleRemoved": true
+  },
+  "finalState": {
+    "guiCoreCount": 0,
+    "ownedListenerCount": 0,
+    "proxyOriginalFourValuesRestored": true,
+    "adapterRouteDnsSnapshotRestored": true,
+    "testAccountLoggedOut": true
+  },
+  "bugs": [
+    "ENTOMA-UX-001: active log search blocks normal window close; exit search then quit succeeds"
+  ],
+  "formalDeltaReview": "REQUIRED_PENDING",
+  "runtimeChangedInThisFollowup": false,
+  "releaseOrProductionActions": false,
+  "agyCallsThisFollowup": 0
+}

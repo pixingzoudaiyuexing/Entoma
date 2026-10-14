@@ -1,6 +1,7 @@
 package com.follow.clash.plugins
 
 import com.follow.clash.GlobalState
+import com.follow.clash.BuildConfig
 import com.follow.clash.models.VpnOptions
 import com.google.gson.Gson
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -22,6 +23,10 @@ data object ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result): Unit = when (call.method) {
+        "acceptanceSnapshot" -> {
+            if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) result.success(GlobalState.getCurrentVPNPlugin()?.acceptanceSnapshot())
+            else result.notImplemented()
+        }
         "startVpn" -> {
             val data = call.argument<String>("data")
             val options = Gson().fromJson(data, VpnOptions::class.java)

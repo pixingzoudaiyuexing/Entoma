@@ -1,0 +1,85 @@
+diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
+index 3549d474..c344b2a2 100644
+--- a/listener/sing_tun/server.go
++++ b/listener/sing_tun/server.go
+@@ -420,6 +420,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+ 		return
+ 	}
+ 
++	l.tunIf = tunIf // Own the detached FD before any later validation can fail.
+ 	l.dnsServerIp = dnsServerIp
+ 	// after tun.New sing-tun has set DNS to TUN interface
+ 	resolver.AddSystemDnsBlacklist(dnsServerIp...)
+@@ -437,23 +438,41 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+ 	}
+ 
+ 	if options.FileDescriptor > 0 {
+-		if tunName, err := getTunnelName(int32(options.FileDescriptor)); err != nil {
++		tunName, nameErr := getTunnelName(int32(options.FileDescriptor))
++		if runtime.GOOS == "android" && (nameErr != nil || tunName == "") {
++			err = fmt.Errorf("cannot identify Android TUN interface: empty name")
++			if nameErr != nil {
++				err = fmt.Errorf("cannot identify Android TUN interface: %w", nameErr)
++			}
++			return
++		}
++		if nameErr == nil {
+ 			stackOptions.TunOptions.Name = tunName
+ 			stackOptions.ForwarderBindInterface = true
++			if runtime.GOOS == "android" {
++				// Bind strictly to this device, using a wildcard local address.
++				// A late removal of the prior TUN address must not destroy the
++				// next generation's address-bound kernel forwarder listener.
++				stackOptions.EnforceBindInterface = true
++			}
+ 		}
+ 	}
+-	l.tunIf = tunIf
+ 
+ 	tunStack, err := tun.NewStack(strings.ToLower(options.Stack.String()), stackOptions)
+ 	if err != nil {
+ 		return
+ 	}
+ 
++	l.tunStack = tunStack
+ 	err = tunStack.Start()
+ 	if err != nil {
++		if runtime.GOOS == "android" {
++			// Mixed.Close returns early before its UDP stack exists. Release
++			// any IPv4 listener already opened before an IPv6 bind failure.
++			closeFailedMixedStack(tunStack)
++		}
+ 		return
+ 	}
+-	l.tunStack = tunStack
+ 
+ 	if l.autoRedirect != nil {
+ 		if len(l.options.RouteAddressSet) > 0 && len(l.routeAddressSet) == 0 {
+diff --git a/listener/sing_tun/failed_stack_gvisor.go b/listener/sing_tun/failed_stack_gvisor.go
+new file mode 100644
+--- /dev/null
++++ b/listener/sing_tun/failed_stack_gvisor.go
+@@ -0,0 +1,11 @@
++//go:build with_gvisor
++
++package sing_tun
++
++import tun "github.com/metacubex/sing-tun"
++
++func closeFailedMixedStack(stack tun.Stack) {
++	if mixed, ok := stack.(*tun.Mixed); ok && mixed != nil && mixed.System != nil {
++		_ = mixed.System.Close()
++	}
++}
+diff --git a/listener/sing_tun/failed_stack_other.go b/listener/sing_tun/failed_stack_other.go
+new file mode 100644
+--- /dev/null
++++ b/listener/sing_tun/failed_stack_other.go
+@@ -0,0 +1,7 @@
++//go:build !with_gvisor
++
++package sing_tun
++
++import tun "github.com/metacubex/sing-tun"
++
++func closeFailedMixedStack(stack tun.Stack) {}

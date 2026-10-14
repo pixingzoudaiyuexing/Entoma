@@ -13,6 +13,8 @@ import android.os.IBinder
 import androidx.core.content.getSystemService
 import com.follow.clash.FlClashApplication
 import com.follow.clash.GlobalState
+import android.system.Os
+import com.follow.clash.BuildConfig
 import com.follow.clash.RunState
 import com.follow.clash.core.Core
 import com.follow.clash.extensions.awaitResult
@@ -34,6 +36,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.withLock
 
 data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
@@ -49,6 +52,33 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var startGeneration = 0
     private var startPending = false
     private val uidPageNameMap = mutableMapOf<Int, String>()
+    private var tunSequence = 0
+    private var startedFd: Int? = null
+    private var nativeStarts = 0
+    private var nativeStops = 0
+    private val protectedSockets = AtomicInteger(0)
+    private val protectionFailures = AtomicInteger(0)
+
+    fun acceptanceSnapshot(): Map<String, Any?> {
+        if (!BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) return emptyMap()
+        val fd = startedFd
+        val openTunFd = if (fd == null) false else try {
+            Os.readlink("/proc/self/fd/$fd").contains("tun")
+        } catch (_: Exception) { false }
+        val networks = connectivity?.allNetworks?.filter {
+            connectivity?.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        } ?: emptyList()
+        val httpProxy = networks.mapNotNull { connectivity?.getLinkProperties(it)?.httpProxy }.firstOrNull()
+        return mapOf("runState" to GlobalState.runState.value?.name,
+            "tunSequence" to tunSequence, "tunFd" to fd,
+            "tunFdStillOpen" to openTunFd, "nativeStarts" to nativeStarts,
+            "nativeStops" to nativeStops, "protectedSockets" to protectedSockets.get(),
+            "protectionFailures" to protectionFailures.get(), "vpnNetworks" to networks.size,
+            "vpnHttpProxyPresent" to (httpProxy != null),
+            "vpnHttpProxyValid" to (httpProxy?.host == "127.0.0.1" &&
+                httpProxy?.port == options?.port && httpProxy?.pacFileUrl?.toString().isNullOrEmpty()),
+            "serviceIdentity" to flClashService?.let { System.identityHashCode(it) })
+    }
 
     private val connectivity by lazy {
         FlClashApplication.getAppContext().getSystemService<ConnectivityManager>()
@@ -248,6 +278,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             if (GlobalState.runState.value == RunState.START) { finishStart(true); return }
             try {
             val fd = flClashService?.start(options!!)
+            if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) { startedFd = fd; tunSequence++ }
             if (options?.enable == true && (fd == null || fd <= 0)) throw IllegalStateException("VPN interface unavailable")
             val started = Core.startTun(
                 fd = fd ?: 0,
@@ -255,6 +286,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 resolverProcess = this::resolverProcess,
             )
             if (!started) throw IllegalStateException("TUN start failed")
+            if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) nativeStarts++
             GlobalState.runState.value = RunState.START
             startForegroundJob()
             finishStart(true)
@@ -268,7 +300,11 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun protect(fd: Int): Boolean {
-        return (flClashService as? FlClashVpnService)?.protect(fd) == true
+        val protected = (flClashService as? FlClashVpnService)?.protect(fd) == true
+        if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) {
+            if (protected) protectedSockets.incrementAndGet() else protectionFailures.incrementAndGet()
+        }
+        return protected
     }
 
     private fun resolverProcess(
@@ -303,6 +339,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             activeService?.stop()
             stopForegroundJob()
             Core.stopTun()
+            if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) nativeStops++
             GlobalState.handleTryDestroy()
         }
     }
