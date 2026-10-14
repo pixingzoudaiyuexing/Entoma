@@ -5,6 +5,7 @@ import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/fade_box.dart';
 import 'package:fl_clash/widgets/pop_scope.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'chip.dart';
@@ -264,7 +265,7 @@ class CommonScaffoldState extends State<CommonScaffold> {
     if (_appBarState.value.leading != null && !_isSearch && !_isEdit) {
       return const SizedBox.shrink();
     }
-    
+
     return _isSearch
         ? TextField(
             autofocus: true,
@@ -321,19 +322,25 @@ class CommonScaffoldState extends State<CommonScaffold> {
   Widget _buildAppBarWrap(Widget child) {
     final appBar = _isSearch ? _buildSearchingAppBarTheme(child) : child;
     if (_isEdit || _isSearch) {
-      return SystemBackBlock(
-        child: CommonPopScope(
-          onPop: () {
-            if (_isEdit || _isSearch) {
-              _handleExitSearching();
-              _appBarState.value.editState?.onExit();
-              return false;
-            }
-            return true;
-          },
-          child: appBar,
-        ),
+      final guardedAppBar = CommonPopScope(
+        onPop: () {
+          if (_isEdit || _isSearch) {
+            _handleExitSearching();
+            _appBarState.value.editState?.onExit();
+            return false;
+          }
+          return true;
+        },
+        child: appBar,
       );
+      // Search consumes page Back, but desktop window close must still use the
+      // controller's existing minimize/owned-network cleanup policy.
+      final desktop = defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.linux;
+      return desktop && _isSearch && !_isEdit
+          ? guardedAppBar
+          : SystemBackBlock(child: guardedAppBar);
     }
     return appBar;
   }
