@@ -110,7 +110,10 @@ void main() {
       // before native core/session/profile work, even if a callback fires late.
       await controller.updateStatus(true);
       await controller.restartCore();
-      await controller.applyProfile(silence: true);
+      await expectLater(controller.applyProfile(silence: true), throwsStateError);
+      controller.handleChangeProfile();
+      controller.applyProfileDebounce(silence: true);
+      await tester.pump(const Duration(seconds: 1));
       expect(native.entered.isCompleted, isFalse);
       expect(tester.takeException(), isNull);
     } finally {
