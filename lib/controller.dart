@@ -20,6 +20,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'common/common.dart';
 import 'models/models.dart';
 import 'views/profiles/override_profile.dart';
+import 'solution/session.dart';
+import 'solution/api.dart';
 
 class AppController {
   int? lastProfileModified;
@@ -577,14 +579,38 @@ class AppController {
     await handleExit();
   }
 
-  Future<void> _initCore() async {
+  // Establish the core home/geodata before account restoration can load a
+  // cached profile. This step never starts listeners or applies a profile.
+  Future<void> prepareCore() async {
     final isInit = await clashCore.isInit;
     if (!isInit) {
-      await clashCore.init();
-      await clashCore.setState(
-        globalState.getCoreState(),
-      );
+      if (!await clashCore.init()) {
+        throw StateError('Unable to initialize the proxy core');
+      }
     }
+    if (!await clashCore.setState(globalState.getCoreState())) {
+      throw StateError('Unable to initialize proxy core state');
+    }
+  }
+
+  Future<void> restoreSessionAndInit(SolutionSession session) async {
+    try {
+      await prepareCore();
+    } catch (error, stack) {
+      // Keep the local account UI available even when native preparation fails.
+      // Do not load profiles through a core that failed preparation.
+      await session.restore(synchronizeProfiles: false);
+      Error.throwWithStackTrace(error, stack);
+    }
+    if (!await session.restore()) {
+      // Storage failure skips ownership cleanup, so cached auto-run is unsafe.
+      throw const SolutionError('STORAGE_ERROR');
+    }
+    await init();
+  }
+
+  Future<void> _initCore() async {
+    await prepareCore();
     await applyProfile();
   }
 

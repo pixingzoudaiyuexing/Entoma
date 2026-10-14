@@ -1,0 +1,294 @@
+{
+  "capturedAt": "2026-10-14T04:29:21.637357+08:00",
+  "result": "PARTIAL_RELEASE_PENDING",
+  "baselineMain": "66f24d28546a5304012a46dd1d24a9d85acd8b2c",
+  "acceptedArtifactSource": "1b764e93d260a2e740949dc99d3908a6208fe652",
+  "fixRuntimeSource": "55dc0587a582d6d06ecd75202a1d9e28fe98e737",
+  "pullRequest": "https://github.com/pixingzoudaiyuexing/Entoma/pull/2",
+  "formalDeltaReview": "PENDING",
+  "ci": {
+    "run": 38385207448,
+    "sha": "55dc0587a582d6d06ecd75202a1d9e28fe98e737",
+    "android": "success",
+    "windows": "success",
+    "macos": "success"
+  },
+  "validation": {
+    "localFlutterTestsPassed": 125,
+    "coldStartTestsPassed": 5,
+    "regressionMutationFails": true,
+    "goCoreTests": "PASS",
+    "localFlutterAnalyze": "BLOCKED_TOOL_UNICODE_LSP_FRAMING",
+    "dartAnalyze": {
+      "errors": 0,
+      "warnings": 22,
+      "infos": 94
+    },
+    "ciAnalyzeAndTests": "PASS_ALL_THREE"
+  },
+  "artifacts": {
+    "acceptedAndroidSha256": "be359fd225c7a73d37a1335b4be8cd4cb566e0679da2b81d9ba9ad0d38b530f7",
+    "acceptedWindowsInstallerSha256": "eb945a186ce347e10530162370a5dd23e55380c5a29364bb06481d21216240a8",
+    "acceptedMacosPkgSha256": "737b262f9e978daac852b781ce5af2a61c17232bfebef5ab51aeb4b0e32c1b5f",
+    "qaAndroidSha256": "5af556427be6549ab19ce7f8b5fcbf93849566ca0bf99f0927b2eebcf2c857e0",
+    "qaAndroidCoreSha256": "90816f174e03416f668f83ce5f82648a0fe9d3718cd0ddce98f301ccfba7bc16",
+    "ciFix": {
+      "Entoma-0.1.0-macos.pkg": "4d78fd25c21a0d320af7356941c02e7538ae8838a85b7c4b94300022184cb06b",
+      "Entoma-0.1.0-macos.zip": "ef05ae3e05ba25a15eb97e69c788817628bbb8a84c8638a9f0493559f856f7c0",
+      "Entoma-0.1.0-android-arm64-test.apk": "2269447b9f740c4374c8ac35693eb77eab9783764d8e98a454c39dd6b76fa2cd",
+      "Entoma-0.1.0-windows-x64.zip": "9b7b1540876f83ed164891af2e379fca2d66f759f600fa1ea8fedbfca1622472",
+      "Entoma-0.1.0-windows-x64-setup.exe": "f7b1d695037fb2af21cd41cbd46beecd91711fb8a1ac642b2432bb2591d21a85",
+      "windowsRuntimeDlls": [
+        "concrt140.dll",
+        "msvcp140_1.dll",
+        "msvcp140_2.dll",
+        "msvcp140_atomic_wait.dll",
+        "msvcp140_codecvt_ids.dll",
+        "msvcp140.dll",
+        "vcruntime140_1.dll",
+        "vcruntime140.dll"
+      ],
+      "source": "55dc0587a582d6d06ecd75202a1d9e28fe98e737",
+      "ci": "38385207448"
+    }
+  },
+  "platforms": {
+    "android": {
+      "device": {
+        "manufacturer": "HUAWEI",
+        "model": "CDY-AN90",
+        "android": "10",
+        "api": "29",
+        "abis": "arm64-v8a,armeabi-v7a,armeabi"
+      },
+      "original": {
+        "status": "FAIL",
+        "loginAccountSubscription": "PASS",
+        "selectedNodeVpnHttps": "PASS",
+        "backgroundAndNodeSwitch": "PASS",
+        "disconnectNativeCleanup": "PASS",
+        "coldSession": "PASS",
+        "coldCore": "FAIL",
+        "source": "1b764e93d260a2e740949dc99d3908a6208fe652"
+      },
+      "qa": {
+        "status": "FAIL_MIXED_RECONNECT",
+        "coldNodesTwice": "PASS",
+        "vpnHttpsNodeChain": "PASS",
+        "background": "NOT_VERIFIED",
+        "offlineColdAndFailedRefreshLkg": "PASS",
+        "mixedReconnect": "FAIL_ECONNREFUSED",
+        "sameStateCoreMixedPort": "PASS",
+        "gvisorTwoConnections": "PASS_COMPARISON_TWO_SETTINGS_CHANGED",
+        "realKeystoreCorruption": "NOT_TESTED",
+        "logoutColdAndProfilesUi": "PASS",
+        "sourceRuntimeDelta": "55dc0587a582d6d06ecd75202a1d9e28fe98e737"
+      },
+      "finalNetwork": "WIFI_VALIDATED_NO_VPN_NO_FGS",
+      "probeAndAdbForwardRemoved": true
+    },
+    "windows": {
+      "device": "Windows 11 Pro 10.0.26300 x64 via authorized RDP",
+      "status": "BLOCKED",
+      "loginAccountSubscription": "PASS",
+      "systemProxyNodeHttps": "PASS",
+      "disconnectAndNormalQuitSnapshot": "PASS",
+      "coldSessionAndFreshAccount": "PASS",
+      "logoutColdAndProfiles": "PASS",
+      "tun": "BLOCKED_NO_VNC",
+      "newInstallerDeviceRun": "BLOCKED_RDP_ACCOUNT_LOCK_0xd07",
+      "cleanSystemRuntime": "NOT_TESTED",
+      "routesChangedForTun": false,
+      "testedSource": "1b764e93d260a2e740949dc99d3908a6208fe652"
+    },
+    "macos": {
+      "device": "macOS 15.7.4 build24G517 arm64",
+      "status": "FAIL_REPEAT_NETWORK_PERMISSION_UX_UNRESOLVED_TUN_FLOW_PASS",
+      "loginAccountSubscription": "PASS",
+      "earlierControlledSystemProxyNodeHttps": "PASS",
+      "earlierExactSnapshotRestoration": "PASS",
+      "finalRawProxyDictionaryRestoration": "INCONCLUSIVE",
+      "normalQuitAfterProxyOff": "PASS",
+      "normalQuitWhileProxyActive": "NOT_TESTED_CONCLUSIVELY",
+      "coldSessionAndFreshAccount": "PASS",
+      "logoutColdAndProfiles": "PASS",
+      "tun": "PASS_OWNER_INITIATED_FORWARDING_DISCONNECT_RECONNECT_ACTIVE_TUN_QUIT",
+      "tunOwnerFollowup": "OWNER_SUBSEQUENTLY_CLICKED_CONNECT_ROOT_CORE_AND_UTUN6_OBSERVED",
+      "newUtunInterfaces": 1,
+      "repeatNetworkPermissionPrompt": "UNRESOLVED_OWNER_REPORT_AND_OBSERVED_CLOSE_PROMPT",
+      "finalCleanup": {
+        "capturedAt": "2026-10-14T13:12:40.345559+08:00",
+        "quitViaMenuWhileTunActive": true,
+        "appOrCoreProcesses": 0,
+        "utunInterfacesRestored": true,
+        "utun6Present": false,
+        "utun6RouteEntries": 0,
+        "allServiceNetworkSettingsRestored": true,
+        "effectiveProxyRestored": true,
+        "systemProxyEnabled": false,
+        "listener17890Present": false,
+        "noUiReadAfterQuit": true,
+        "savedTunModeMayRemainSelected": true,
+        "testDidNotLogOutOrClearAccountProfileData": true
+      },
+      "testedSource": "1b764e93d260a2e740949dc99d3908a6208fe652",
+      "tunPriorAttempts": "BLOCKED_CORE_AUTHENTICATION_TIMEOUT_PRESERVED",
+      "tunPriorTimeoutCause": "UNRESOLVED_NOT_ATTRIBUTED_TO_OWNER_AUTHORIZATION_DELAY",
+      "normalQuitWhileTunActive": "PASS",
+      "ownerTunExactNetworkSnapshotRestoration": "PASS",
+      "ownerTunCycle": {
+        "capturedAt": "2026-10-14T13:14:34.007113+08:00",
+        "source": "1b764e93d260a2e740949dc99d3908a6208fe652",
+        "mergedBaseline": "66f24d28546a5304012a46dd1d24a9d85acd8b2c",
+        "coreSha256": "4d96596803de49ab7e50f7a0c0e3399dbefaafef6da286cff390587590784e4f",
+        "newUtunObservedAt": "2026-10-14T12:08:42.689532+08:00",
+        "interface": "utun6",
+        "firstHttps": {
+          "defaultTLSValidation": true,
+          "httpStatus": 200,
+          "request": "system URLSession; no explicit proxy override",
+          "responseBytes": 281,
+          "responseHash": "35995ab968c68e03f1fc1bba7bd2131ebb107c3198c61f138bbe256602b09c65",
+          "capturedAt": "2026-10-14T12:56:22.626982+08:00",
+          "mode": "TUN",
+          "explicitHttpProxy": false,
+          "requestedSelectedNode": "test",
+          "systemProxyEnabledAtProbe": false
+        },
+        "selectedNodeProof": {
+          "capturedAt": "2026-10-14T13:01:01.083166+08:00",
+          "interface": "utun6",
+          "before": {
+            "inputBytes": 1284055712,
+            "outputBytes": 638623995
+          },
+          "after": {
+            "inputBytes": 1284734650,
+            "outputBytes": 638963442
+          },
+          "inputByteDelta": 678938,
+          "outputByteDelta": 339447,
+          "https": {
+            "defaultTLSValidation": true,
+            "httpStatus": 200,
+            "request": "system URLSession; no explicit proxy override",
+            "responseBytes": 281,
+            "responseHash": "31cb86f4d839aaf67653e31d7ef537beb3c96ef1f142a7f8683f7110cfad052e"
+          },
+          "routeInterfaceForTarget": "utun6",
+          "observedSelectedNodeChain": {
+            "target": "www.cloudflare.com:443",
+            "node": "test",
+            "direct": false,
+            "coreLogTime": "2026-10-14T12:56:22.059006+08:00"
+          },
+          "nativeCoreUid": 0,
+          "nativeCorePid": 70099,
+          "counterCapturedAt": "2026-10-14T13:01:54.372489+08:00",
+          "counterMethod": "netstat -ibn -I utun6, seven numeric suffix columns",
+          "counterIntervalHttps": {
+            "defaultTLSValidation": true,
+            "httpStatus": 200,
+            "request": "system URLSession; no explicit proxy override",
+            "responseBytes": 280,
+            "responseHash": "3d5d56a3ad76530d43427b4b386184e752a8f06769776d2c5cda8f9c880bcaf9"
+          }
+        },
+        "disconnect": {
+          "capturedAt": "2026-10-14T13:05:47.395938+08:00",
+          "utunInterfacesRestored": true,
+          "utun6Present": false,
+          "utun6RouteEntries": 0,
+          "allServiceNetworkSettingsRestored": true,
+          "effectiveProxyRestored": true,
+          "systemProxyEnabled": false,
+          "listener17890Present": false,
+          "rootCorePresent": true,
+          "targetRouteInterface": "en0",
+          "exactRouteTableRestoration": "NOT_CLAIMED_DYNAMIC_ROUTE_COUNTER_HASH_UNSUITABLE"
+        },
+        "reconnect": {
+          "defaultTLSValidation": true,
+          "httpStatus": 200,
+          "request": "system URLSession; no explicit proxy override",
+          "responseBytes": 280,
+          "responseHash": "b381ec1fe0f24360c3287d6f32cd5a4600a233c96840e5c13c1490b1e871e7ab",
+          "capturedAt": "2026-10-14T13:07:37.054335+08:00",
+          "phase": "reconnect",
+          "systemProxyEnabled": false,
+          "utunInterfaces": [
+            "utun0",
+            "utun1",
+            "utun2",
+            "utun3",
+            "utun4",
+            "utun5",
+            "utun6"
+          ],
+          "targetRouteInterface": "utun6",
+          "rootCorePids": [
+            70099
+          ],
+          "securityAgentPresentAtReadback": false,
+          "selectedNodeChain": {
+            "target": "www.cloudflare.com:443",
+            "node": "test",
+            "direct": false,
+            "coreLogTime": "2026-10-14T13:07:36.376902+08:00"
+          }
+        },
+        "normalQuitWhileTunActive": {
+          "capturedAt": "2026-10-14T13:12:40.345559+08:00",
+          "quitViaMenuWhileTunActive": true,
+          "appOrCoreProcesses": 0,
+          "utunInterfacesRestored": true,
+          "utun6Present": false,
+          "utun6RouteEntries": 0,
+          "allServiceNetworkSettingsRestored": true,
+          "effectiveProxyRestored": true,
+          "systemProxyEnabled": false,
+          "listener17890Present": false,
+          "noUiReadAfterQuit": true,
+          "savedTunModeMayRemainSelected": true,
+          "testDidNotLogOutOrClearAccountProfileData": true
+        },
+        "status": "PASS",
+        "limits": [
+          "No silent permission or persistent helper claim",
+          "Earlier timed-out attempts remain historical evidence",
+          "Counter intervals include other background traffic",
+          "No new source or native permission change",
+          "Exact dynamic route-table equality is not claimed; owned route cleanup is verified"
+        ],
+        "screenshot": "macos-owner-tun-selected-node-redacted.png",
+        "ownerReportedClickedConnect": true,
+        "adminCoreUidZeroObserved": true,
+        "rootCoreObservedAt": "2026-10-14T12:08:39.639592+08:00"
+      }
+    }
+  },
+  "security": {
+    "realFinancialWrites": false,
+    "productionChanges": false,
+    "tlsBypass": false,
+    "androidResetOnErrorJournalRisk": "UNRESOLVED_SOURCE_AND_MOCK_EVIDENCE_DEVICE_TRIGGER_NOT_TESTED"
+  },
+  "evidenceRoot": "dist/device-acceptance/66f24d2",
+  "preservedPriorEvidence": true,
+  "unrelatedSubmoduleStatePreserved": true,
+  "agy": {
+    "calls": 3,
+    "researchScout": 0,
+    "rootCauseChallenger": 2,
+    "designChallenger": 0,
+    "testDesigner": 0,
+    "embeddedReviewer": 1,
+    "embeddedCompleted": 0,
+    "embeddedFailed": 1,
+    "embeddedRereview": 0
+  },
+  "nativeCredentialForensicRead": "NOT_PERFORMED",
+  "sandboxFileErasureForensics": "NOT_VERIFIED",
+  "updatedAt": "2026-10-14T13:15:54.432144+08:00",
+  "timestamps": "capturedAt is the original report snapshot; updatedAt is the latest evidence update"
+}
