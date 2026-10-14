@@ -142,7 +142,7 @@ Future<void> runAndroidNetworkAcceptance() async {
               'https://www.gstatic.com/generate_204', node))
           .value
     });
-    final cases = [
+    var cases = [
       (TunStack.mixed, false),
       (TunStack.system, false),
       (TunStack.gvisor, false),
@@ -150,6 +150,15 @@ Future<void> runAndroidNetworkAcceptance() async {
       (TunStack.system, true),
       (TunStack.mixed, true)
     ];
+    const single = String.fromEnvironment('ENTOMA_NETWORK_CELL');
+    if (single.isNotEmpty) {
+      cases = cases.where((c) => '${c.$1.name}:${c.$2}' == single).toList();
+      if (cases.isEmpty) throw StateError('unknown acceptance cell');
+    }
+    const cycles =
+        int.fromEnvironment('ENTOMA_NETWORK_CYCLES', defaultValue: 3);
+    const shellWindow =
+        int.fromEnvironment('ENTOMA_NETWORK_PROBE_WINDOW', defaultValue: 25);
     try {
       for (final cell in cases) {
         await _stopAndConfirm();
@@ -159,7 +168,7 @@ Future<void> runAndroidNetworkAcceptance() async {
             .read(patchClashConfigProvider.notifier)
             .updateState((v) => v.copyWith.tun(stack: cell.$1));
         await Future<void>.delayed(const Duration(seconds: 1));
-        for (var cycle = 0; cycle < 3; cycle++) {
+        for (var cycle = 0; cycle < cycles; cycle++) {
           await _stopAndConfirm();
           await _wait(() => !globalState.isStart, const Duration(seconds: 10));
           await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -184,6 +193,7 @@ Future<void> runAndroidNetworkAcceptance() async {
             }
             _record({
               'phase': 'connected',
+              'shellProbeWindow': shellWindow,
               'stack': cell.$1.name,
               'proxy': cell.$2,
               'cycle': cycle,
@@ -191,7 +201,7 @@ Future<void> runAndroidNetworkAcceptance() async {
             });
             // A bounded window for the independent adb-shell HTTPS probe.
             // Its results cannot be substituted with this app's own requests.
-            await Future<void>.delayed(const Duration(seconds: 25));
+            await Future<void>.delayed(const Duration(seconds: shellWindow));
             _record({
               'phase': 'probe',
               'stack': cell.$1.name,
