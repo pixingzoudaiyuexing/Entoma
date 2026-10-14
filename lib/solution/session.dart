@@ -3,70 +3,13 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
+import 'journal_storage.dart';
+import 'vault.dart';
 
-abstract class SessionVault {
-  Future<String?> read();
-  Future<void> write(String? value);
-  Future<String?> readJournal();
-  Future<void> writeJournal(String value);
-}
-
-// flutter_secure_storage_darwin 0.2.0 reads this legacy wire spelling.
-// Its Dart option uses a different spelling, so explicitly send both.
-class EntomaMacVaultOptions extends MacOsOptions {
-  const EntomaMacVaultOptions() : super(usesDataProtectionKeychain: false);
-  @override
-  Map<String, String> toMap() =>
-      {...super.toMap(), 'useDataProtectionKeyChain': 'false'};
-}
-
-class NativeSessionVault implements SessionVault {
-  final FlutterSecureStorage storage;
-  final String key;
-  final Duration readTimeout;
-  final Map<String, Future<String?>> _nativeReads = {};
-  NativeSessionVault(
-    String origin, {
-    FlutterSecureStorage? storage,
-    this.readTimeout = const Duration(seconds: 10),
-  })  : storage = storage ??
-            const FlutterSecureStorage(mOptions: EntomaMacVaultOptions()),
-        key = 'entoma.session.v1.$origin';
-  @override
-  Future<String?> read() => _read(key);
-  Future<String?> _read(String itemKey) {
-    // A Dart timeout does not cancel SecItemCopyMatching. Reuse that native
-    // operation until it settles instead of adding more calls to its serial queue.
-    final pending = _nativeReads.putIfAbsent(itemKey, () {
-      final operation = storage.read(key: itemKey);
-      void release() {
-        if (identical(_nativeReads[itemKey], operation)) {
-          _nativeReads.remove(itemKey);
-        }
-      }
-
-      operation.then((_) => release(), onError: (Object _, StackTrace __) {
-        release();
-      });
-      return operation;
-    });
-    return pending.timeout(readTimeout);
-  }
-
-  @override
-  Future<void> write(String? value) => value == null
-      ? storage.delete(key: key)
-      : storage.write(key: key, value: value);
-  @override
-  Future<String?> readJournal() => _read('$key.pending');
-  @override
-  Future<void> writeJournal(String value) =>
-      storage.write(key: '$key.pending', value: value);
-}
+export 'vault.dart';
 
 class MutationContext {
   final SolutionSession session;
@@ -100,6 +43,7 @@ class SolutionSession extends ChangeNotifier {
   bool initialized = false;
   bool busy = false;
   String? notice;
+  String? journalNotice;
   Map<String, dynamic>? account;
   Map<String, dynamic>? overview;
   int? balanceMinor;
@@ -112,6 +56,7 @@ class SolutionSession extends ChangeNotifier {
 
   SolutionSession(this.api, this.vault);
   bool get authenticated => _token != null;
+  bool get mutationStorageTrusted => _journalReady;
 
   Future<void> _persist(int expected, {Set<String> completed = const {}}) {
     final completion = _writes.catchError((_) {}).then((_) async {
@@ -126,13 +71,26 @@ class SolutionSession extends ChangeNotifier {
               'email': email,
               'pending': remaining.toList(),
             });
-      await vault.writeJournal(jsonEncode(candidate));
+      if (!_journalReady && completed.isNotEmpty) {
+        throw const SolutionError('JOURNAL_UNAVAILABLE');
+      }
+      if (_journalReady) {
+        try {
+          await vault.writeJournal(jsonEncode(candidate));
+        } catch (_) {
+          _journalReady = false;
+          journalNotice = const SolutionError('JOURNAL_UNAVAILABLE').toString();
+          rethrow;
+        }
+      }
       if (generation != expected) return;
       await vault.write(sessionData);
       if (generation == expected) {
-        _journal
-          ..clear()
-          ..addAll(candidate);
+        if (_journalReady) {
+          _journal
+            ..clear()
+            ..addAll(candidate);
+        }
         pendingMutations.removeAll(completed);
       }
     });
@@ -151,18 +109,13 @@ class SolutionSession extends ChangeNotifier {
     final journal = await vault.readJournal();
     final loaded = <String, List<String>>{};
     if (journal != null) {
-      for (final entry in object(jsonDecode(journal)).entries) {
-        if (entry.value is! List ||
-            (entry.value as List).any((v) => v is! String)) {
-          throw const SolutionError('STORAGE_ERROR');
-        }
-        loaded[entry.key] = (entry.value as List).cast<String>();
-      }
+      loaded.addAll(parseJournalEntries(jsonDecode(journal)));
     }
     _journal
       ..clear()
       ..addAll(loaded);
     _journalReady = true;
+    journalNotice = null;
   }
 
   Future<bool> restore({
@@ -188,19 +141,30 @@ class SolutionSession extends ChangeNotifier {
           await preferences.remove(key);
         }
       }
-      await _loadJournal();
+      try {
+        await _loadJournal();
+      } catch (_) {
+        if (expected == generation) {
+          _journalReady = false;
+          journalNotice = const SolutionError('JOURNAL_UNAVAILABLE').toString();
+        }
+      }
       final value = await vault.read();
       if (expected != generation) return false;
       if (value != null) {
         final data = object(jsonDecode(value));
-        _token = string(data['token']);
-        email = data['email'] as String?;
-        pendingMutations.addAll(_journal[email] ?? []);
-        if (data['pending'] is List) {
-          pendingMutations.addAll(
-            (data['pending'] as List).whereType<String>(),
-          );
+        final token = string(data['token']);
+        final address = string(data['email']);
+        final backup = data['pending'];
+        if (backup != null &&
+            (backup is! List || backup.any((v) => v is! String || v.isEmpty))) {
+          throw const SolutionError('STORAGE_ERROR');
         }
+        _token = token;
+        email = address;
+        pendingMutations.addAll(_journal[address] ?? []);
+        if (backup is List) pendingMutations.addAll(backup.cast<String>());
+        if (_journalReady) _journal[address] = pendingMutations.toList();
       }
       storageRestored = true;
       notice = null;
@@ -233,15 +197,13 @@ class SolutionSession extends ChangeNotifier {
     notifyListeners();
     try {
       await _loadJournal();
-      if (expected != generation) throw const SolutionError('STALE_SESSION');
-    } catch (error) {
+    } catch (_) {
       if (expected == generation) {
-        busy = false;
-        notifyListeners();
+        _journalReady = false;
+        journalNotice = const SolutionError('JOURNAL_UNAVAILABLE').toString();
       }
-      if (error is SolutionError) rethrow;
-      throw const SolutionError('STORAGE_ERROR');
     }
+    if (expected != generation) throw const SolutionError('STALE_SESSION');
     notice = null;
     notifyListeners();
     try {
@@ -306,6 +268,9 @@ class SolutionSession extends ChangeNotifier {
     if (expected != generation) throw const SolutionError('STALE_SESSION');
     final token = _token;
     if (token == null) throw const SolutionError('AUTH_REQUIRED');
+    if (method != 'GET' && !_journalReady) {
+      throw const SolutionError('JOURNAL_UNAVAILABLE');
+    }
     try {
       final result = await api.call(
         path,
@@ -328,7 +293,7 @@ class SolutionSession extends ChangeNotifier {
     Future<T> Function(MutationContext) action,
   ) async {
     if (busy) throw const SolutionError('OPERATION_IN_PROGRESS');
-    if (!_journalReady) throw const SolutionError('STORAGE_ERROR');
+    if (!_journalReady) throw const SolutionError('JOURNAL_UNAVAILABLE');
     final orderId = key.startsWith('checkout:')
         ? key.substring(9)
         : key.startsWith('cancel:')
@@ -393,6 +358,9 @@ class SolutionSession extends ChangeNotifier {
 
   Future<void> _completeReadback(Set<String> keys, int expected) async {
     if (expected != generation) throw const SolutionError('STALE_SESSION');
+    // Authoritative reads stay available during quarantine, but cannot repair
+    // an incomplete multi-account journal or release any of its locks.
+    if (!_journalReady) return;
     if (!keys.any(pendingMutations.contains)) return;
     try {
       await _persist(expected, completed: keys);
@@ -463,6 +431,7 @@ class SolutionSession extends ChangeNotifier {
   }
 
   Future<void> acknowledgeNewIntent(String key, int expected) async {
+    if (!_journalReady) throw const SolutionError('JOURNAL_UNAVAILABLE');
     final path = key == 'order:create'
         ? '/api/v1/orders'
         : key == 'ticket:create'
@@ -589,7 +558,10 @@ class SolutionSession extends ChangeNotifier {
 
 final solutionSessionProvider = ChangeNotifierProvider<SolutionSession>((ref) {
   final api = SolutionApi();
-  final session = SolutionSession(api, NativeSessionVault(api.origin.origin));
+  final session = SolutionSession(
+      api,
+      IntegritySessionVault(NativeSessionVault(api.origin.origin),
+          PreferencesJournalWitness(api.origin.origin)));
   ref.onDispose(api.close);
   return session;
 });

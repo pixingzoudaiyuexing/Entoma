@@ -146,8 +146,10 @@ void main() {
         SolutionApi(client: MockClient((r) async => accountResponse(r))),
         vault);
     await session.restore(removeLegacyCredentials: false);
-    await expectLater(
-        session.authenticate('fixture@example.com', 'fixture-password'),
+    await session.authenticate('fixture@example.com', 'fixture-password');
+    expect(session.authenticated, isTrue);
+    expect(session.mutationStorageTrusted, isFalse);
+    await expectLater(session.mutate('order:create', (_) async => true),
         throwsA(isA<SolutionError>()));
     expect(vault.journal, contains('order:create'));
     vault.failRead = false;
