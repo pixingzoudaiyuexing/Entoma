@@ -143,3 +143,32 @@ Candidate CI `38543405272`: macOS, Windows and Android builds and checks passed.
 Formal permission/security Delta Re-review is still pending; PR #4 must not merge
 automatically. Windows device acceptance remains blocked by the locked RDP
 account and unavailable VNC; no remote login or TUN retry was attempted.
+
+## Final repeat/quit evidence and remaining permission blocker
+
+A fresh contiguous TUN repeat returned default-TLS HTTPS 200 over utun6;
+disconnect restored all seven services and the interface inventory exactly.
+Active-TUN normal quit subsequently waited with GUI/core alive when macOS
+requested network authorization. After Owner authorized restoration, all seven
+service states and interfaces matched the repeat baseline, and GUI/core exited.
+This verifies the new wait-before-exit behavior; it does not verify permanent
+permission reuse.
+
+Read-only authorization-database inspection on the test Mac found the network
+right delegates to `authenticate-admin-nonshared` with `shared=false` and
+`timeout=30`. No database entry was changed. Short consecutive toggles reused
+the session; a later restoration correctly required another administrator
+confirmation. The remaining repeated-dialog requirement is PARTIAL, not fixed
+for arbitrary elapsed time. Existing AuthorizationRef reuse cannot override OS
+policy.
+
+A future separately approved option is a signed SMAppService helper limited to
+owned proxy/DNS snapshots and a narrowly validated core-launch operation. It
+must authenticate the calling app by signature/team identity, reject arbitrary
+commands/paths/addresses, serialize operations, restore only its exact applied
+settings, and support uninstall/revocation. It must never accept account tokens.
+This requires distribution signing and a new formal security review; no helper
+is implemented or installed in this PR. Alternatives are retaining user
+authorization at OS expiry, or user-managed network settings through existing
+settings (no product default is silently changed). Reusing an always-root core
+for ordinary proxy changes would broaden core privilege and is not approved.
