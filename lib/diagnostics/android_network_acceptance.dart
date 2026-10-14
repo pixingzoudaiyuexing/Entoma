@@ -85,7 +85,9 @@ Future<Map<String, Object?>> _probe(String node,
         .toList();
     final chains =
         matching.map((c) => (c['chains'] as List).cast<String>()).toList();
-    final bytes = await response.fold<int>(0, (a, b) => a + b.length);
+    final bytes = await response
+        .fold<int>(0, (a, b) => a + b.length)
+        .timeout(const Duration(seconds: 15));
     return {
       'http': response.statusCode,
       'bytes': bytes,
@@ -158,6 +160,11 @@ Future<void> runAndroidNetworkAcceptance() async {
         int.fromEnvironment('ENTOMA_NETWORK_CYCLES', defaultValue: 3);
     const shellWindow =
         int.fromEnvironment('ENTOMA_NETWORK_PROBE_WINDOW', defaultValue: 25);
+    // Test-only reachability control: accept and immediately close without
+    // reading bytes. It contains no business data or commands and is closed
+    // before the harness returns. Ordinary builds never enter this harness.
+    final lanControl = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
+    final lanSubscription = lanControl.listen((socket) => socket.destroy());
     try {
       for (final cell in cases) {
         await _stopAndConfirm();
@@ -193,6 +200,7 @@ Future<void> runAndroidNetworkAcceptance() async {
             _record({
               'phase': 'connected',
               'shellProbeWindow': shellWindow,
+              'lanControlPort': lanControl.port,
               'stack': cell.$1.name,
               'proxy': cell.$2,
               'cycle': cycle,
@@ -237,6 +245,8 @@ Future<void> runAndroidNetworkAcceptance() async {
         'native': await _snapshot()
       });
     } finally {
+      await lanSubscription.cancel();
+      await lanControl.close();
       await _stopAndConfirm();
       container
           .read(vpnSettingProvider.notifier)
