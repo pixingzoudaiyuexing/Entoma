@@ -112,3 +112,34 @@ OS network changes. Seventeen production Swift ownership seam tests passed.
 The macOS release application built successfully. These results do not replace
 root-to-GUI marker verification, native prompt/repeated-toggle tests or active
 proxy quit on the actual device; those remain separately recorded acceptance.
+
+## macOS device check on 1f11aa8
+
+Local release build (Entoma executable SHA-256
+`cfa986fd431be97b279f0d72434336937f9ae9ba157b9954f28113b9a3c5bceb`)
+ran on the current Mac. Cold startup restored the existing session/account.
+The system proxy used 17890; explicit-loopback HTTPS returned 200 and the
+application's exported target-only evidence confirmed the selected test node,
+not DIRECT. After Owner completed one observed network authorization, repeated
+off/on operations in that session did not start another SecurityAgent. The
+second off restored all seven service proxy/DNS/protocol snapshots exactly.
+Normal active-system-proxy quit restored those seven snapshots and left no
+Entoma GUI or owned core process. Initial and later snapshots had external
+all-service proxy changes during the longer session; do not claim the initial
+7890 snapshot was restored by Entoma. The precise repeat-test baseline is
+`dist/post-device/0c77d0b8/macos/repeat-baseline.json` in the formal checkout.
+
+Owner then authorized the new TUN launch. A UID-0 core and new utun6 appeared;
+default TLS HTTPS with no explicit proxy returned 200, the route selected utun6,
+and the target request used the selected test node. Disconnect removed utun6.
+The long TUN interval's full network snapshots differ (including all-service
+proxy changes outside Entoma's single-service writer), so full DNS/proxy restore
+for that interval is NOT CONFIRMED. Preserve the earlier accepted TUN results
+without substituting them for this candidate. Root-to-GUI marker timing and
+permission cancellation have automated coverage; no forced live permission
+cancellation or 5-minute timeout is claimed as a device pass.
+
+Candidate CI `38543405272`: macOS, Windows and Android builds and checks passed.
+Formal permission/security Delta Re-review is still pending; PR #4 must not merge
+automatically. Windows device acceptance remains blocked by the locked RDP
+account and unavailable VNC; no remote login or TUN retry was attempted.
