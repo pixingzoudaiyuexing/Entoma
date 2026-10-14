@@ -2,7 +2,10 @@
 // It never authenticates, pays, modifies business data or prints raw core DTOs.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
+
+import 'package:ffi/ffi.dart';
 
 import 'package:fl_clash/clash/clash.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -20,8 +23,20 @@ void _record(Map<String, Object?> value) =>
           ...value
         })}');
 
-Future<Map<String, dynamic>> _snapshot() async => Map<String, dynamic>.from(
-    await _service.invokeMethod<Map>('acceptanceSnapshot') ?? {});
+Future<Map<String, dynamic>> _snapshot() async {
+  final state = Map<String, dynamic>.from(
+      await _service.invokeMethod<Map>('acceptanceSnapshot') ?? {});
+  final read = DynamicLibrary.open('libclash.so')
+      .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
+          'entomaAcceptanceTunSnapshot');
+  final pointer = read();
+  try {
+    state['coreTun'] = jsonDecode(pointer.toDartString());
+  } finally {
+    calloc.free(pointer);
+  }
+  return state;
+}
 
 Future<void> _wait(bool Function() ready, Duration limit) async {
   final until = DateTime.now().add(limit);
@@ -52,6 +67,10 @@ Future<Map<String, Object?>> _probe(String node,
         : 'DIRECT';
   client.connectionTimeout = const Duration(seconds: 12);
   try {
+    final before =
+        jsonDecode(await clashCore.clashInterface.getConnections()) as Map;
+    final previousIds =
+        (before['connections'] as List? ?? []).map((c) => c['id']).toSet();
     final request = await client.getUrl(Uri.parse(
         'https://www.cloudflare.com/cdn-cgi/trace?entoma_acceptance=android_matrix'));
     request.followRedirects = false;
@@ -59,7 +78,10 @@ Future<Map<String, Object?>> _probe(String node,
     final raw =
         jsonDecode(await clashCore.clashInterface.getConnections()) as Map;
     final matching = (raw['connections'] as List? ?? [])
-        .where((c) => (c['metadata'] as Map)['host'] == 'www.cloudflare.com')
+        .where((c) =>
+            !previousIds.contains(c['id']) &&
+            (c['metadata'] as Map)['host'] == 'www.cloudflare.com' &&
+            (c['metadata'] as Map)['type'] == (coreProxy ? 'HTTPS' : 'Tun'))
         .toList();
     final chains =
         matching.map((c) => (c['chains'] as List).cast<String>()).toList();
@@ -152,6 +174,13 @@ Future<void> runAndroidNetworkAcceptance() async {
             await controller.changeProxy(
                 groupName: group.name, proxyName: node);
             await Future<void>.delayed(const Duration(milliseconds: 500));
+            final actual = await _snapshot();
+            if ((actual['coreTun'] as Map)['stack'].toString().toLowerCase() !=
+                    cell.$1.name ||
+                actual['vpnHttpProxyPresent'] != cell.$2 ||
+                (cell.$2 && actual['vpnHttpProxyValid'] != true)) {
+              throw StateError('native option readback mismatch');
+            }
             _record({
               'phase': 'connected',
               'stack': cell.$1.name,

@@ -36,6 +36,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.withLock
 
 data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
@@ -55,8 +56,8 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var startedFd: Int? = null
     private var nativeStarts = 0
     private var nativeStops = 0
-    private var protectedSockets = 0
-    private var protectionFailures = 0
+    private val protectedSockets = AtomicInteger(0)
+    private val protectionFailures = AtomicInteger(0)
 
     fun acceptanceSnapshot(): Map<String, Any?> {
         if (!BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) return emptyMap()
@@ -64,14 +65,18 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val openTunFd = if (fd == null) false else try {
             Os.readlink("/proc/self/fd/$fd").contains("tun")
         } catch (_: Exception) { false }
-        val vpnNetworks = connectivity?.allNetworks?.count {
+        val networks = connectivity?.allNetworks?.filter {
             connectivity?.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-        } ?: 0
+        } ?: emptyList()
+        val httpProxy = networks.mapNotNull { connectivity?.getLinkProperties(it)?.httpProxy }.firstOrNull()
         return mapOf("runState" to GlobalState.runState.value?.name,
             "tunSequence" to tunSequence, "tunFd" to fd,
             "tunFdStillOpen" to openTunFd, "nativeStarts" to nativeStarts,
-            "nativeStops" to nativeStops, "protectedSockets" to protectedSockets,
-            "protectionFailures" to protectionFailures, "vpnNetworks" to vpnNetworks,
+            "nativeStops" to nativeStops, "protectedSockets" to protectedSockets.get(),
+            "protectionFailures" to protectionFailures.get(), "vpnNetworks" to networks.size,
+            "vpnHttpProxyPresent" to (httpProxy != null),
+            "vpnHttpProxyValid" to (httpProxy?.host == "127.0.0.1" &&
+                httpProxy?.port == options?.port && httpProxy?.pacFileUrl?.toString().isNullOrEmpty()),
             "serviceIdentity" to flClashService?.let { System.identityHashCode(it) })
     }
 
@@ -297,7 +302,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun protect(fd: Int): Boolean {
         val protected = (flClashService as? FlClashVpnService)?.protect(fd) == true
         if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) {
-            if (protected) protectedSockets++ else protectionFailures++
+            if (protected) protectedSockets.incrementAndGet() else protectionFailures.incrementAndGet()
         }
         return protected
     }
