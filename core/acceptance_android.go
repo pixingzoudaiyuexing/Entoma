@@ -46,6 +46,7 @@ func acceptanceForwarder(listener any, tunFd int) (result map[string]any) {
 	address, addrErr := unix.Getsockname(fd)
 	if addr, ok := address.(*unix.SockaddrInet4); ok && addrErr == nil {
 		result["listenPortMatches"] = addr.Port == int(port.Uint())
+		result["wildcardListen"] = addr.Addr == [4]byte{}
 	}
 	mark, markErr := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_MARK)
 	if markErr == nil {
