@@ -272,6 +272,24 @@ Future<void> runAndroidNetworkAcceptance() async {
         'selectedGroupNowMatches': restoredGroup.now == node,
         'probe': await _probe(node, group: group.name)
       });
+      // Exercise the same persistence/controller sequence used by node cards,
+      // separately from the direct-core result above.
+      for (final target in [alternate.name, node]) {
+        controller.updateCurrentSelectedMap(group.name, target);
+        await controller.changeProxy(groupName: group.name, proxyName: target);
+        final current = (await clashCore.getProxiesGroups())
+            .firstWhere((g) => g.name == group.name);
+        _record({
+          'phase': target == node
+              ? 'controller_node_restore'
+              : 'controller_node_switch',
+          'selectedMapMatches':
+              container.read(currentProfileProvider)?.selectedMap[group.name] ==
+                  target,
+          'selectedGroupNowMatches': current.now == target,
+          'probe': await _probe(target, group: group.name)
+        });
+      }
       _record({'phase': 'background_window'});
       await Future<void>.delayed(const Duration(seconds: 25));
       _record({
