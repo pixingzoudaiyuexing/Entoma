@@ -46,6 +46,16 @@ class Proxy extends ProxyPlatform {
     return result;
   }
 
+  @override
+  Future<bool?> startAutoDns() async => _operatingSystem == 'macos'
+      ? await ProxyPlatform.instance.startAutoDns()
+      : true;
+
+  @override
+  Future<bool?> stopAutoDns() async => _operatingSystem == 'macos'
+      ? await ProxyPlatform.instance.stopAutoDns()
+      : true;
+
   Future<bool> _startProxyWithLinux(int port, List<String> bypassDomain) async {
     try {
       final homeDir = Platform.environment['HOME']!;

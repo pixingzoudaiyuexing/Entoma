@@ -27,4 +27,9 @@ abstract class ProxyPlatform extends PlatformInterface {
   Future<bool?> stopProxy() {
     throw UnimplementedError('stopProxy() has not been implemented.');
   }
+
+  /// macOS auto-DNS shares the native network authorization and ownership queue.
+  Future<bool?> startAutoDns() async => true;
+
+  Future<bool?> stopAutoDns() async => true;
 }
