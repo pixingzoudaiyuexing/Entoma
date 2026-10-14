@@ -35,6 +35,17 @@ func acceptanceForwarder(listener any, tunFd int) map[string]any {
 	fd := int(tcp.Elem().Elem().FieldByName("fd").Elem().FieldByName("pfd").FieldByName("Sysfd").Int())
 	listening, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ACCEPTCONN)
 	result["listening"] = err == nil && listening == 1
+	if err != nil {
+		result["listenReadError"] = err.Error()
+	}
+	address, addrErr := unix.Getsockname(fd)
+	if addr, ok := address.(*unix.SockaddrInet4); ok && addrErr == nil {
+		result["listenPortMatches"] = addr.Port == int(port.Uint())
+	}
+	mark, markErr := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_MARK)
+	if markErr == nil {
+		result["socketMark"] = mark
+	}
 	device, bindErr := unix.GetsockoptString(fd, unix.SOL_SOCKET, unix.SO_BINDTODEVICE)
 	result["boundDevice"] = device
 	result["bindReadOK"] = bindErr == nil
