@@ -149,6 +149,7 @@ class _AccountPageState extends ConsumerState<SolutionAccountPage> {
             style: Theme.of(context).textTheme.titleLarge,
           ),
           if (session.notice != null) Text(session.notice!),
+          if (session.journalNotice != null) Text(session.journalNotice!),
           TextField(
             controller: email,
             keyboardType: TextInputType.emailAddress,
@@ -304,6 +305,7 @@ class _AccountPageState extends ConsumerState<SolutionAccountPage> {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         if (session.notice != null) Text('${session.notice}。已保存的代理配置不会因此清空。'),
+        if (session.journalNotice != null) Text(session.journalNotice!),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(20),

@@ -25,6 +25,8 @@ class SolutionError implements Exception {
         'SUBSCRIPTION_ACCESS_UNAVAILABLE' => '当前账户暂无可用订阅',
         'MUTATION_PENDING' => '上次操作结果尚未确认，请先查看最新记录',
         'STORAGE_ERROR' => '无法访问系统密钥存储，请检查系统提示后重试',
+        'JOURNAL_UNAVAILABLE' =>
+          '无法确认上次业务操作记录，已暂停购买、支付和其他提交。登录、节点连接及查询仍可使用；请联系客服核查，重新登录不会解除保护。',
         'CHALLENGE_REQUIRED' => '当前注册需要网页人机验证，请联系服务方提供验证入口',
         'INVALID_RESPONSE' => '服务返回了无法识别的内容，请稍后重试',
         _ => '操作未完成，请刷新后重试',

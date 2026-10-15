@@ -1,0 +1,4 @@
+-keep class com.it_nomads.fluttersecurestorage.FlutterSecureStorage { *; }
+-keep class com.it_nomads.fluttersecurestorage.FlutterSecureStorageConfig { *; }
+-keep interface com.it_nomads.fluttersecurestorage.SecurePreferencesCallback { *; }
+-keep class com.it_nomads.fluttersecurestorage.JournalStorageInstrumentation** { *; }

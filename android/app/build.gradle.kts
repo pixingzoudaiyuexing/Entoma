@@ -42,12 +42,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        testInstrumentationRunner = "com.it_nomads.fluttersecurestorage.JournalStorageInstrumentation"
         // The MVP bundles one matching Flutter/Go/JNI architecture.
         ndk {
             abiFilters.clear()
             abiFilters.add("arm64-v8a")
         }
     }
+
+    testBuildType = "release"
 
     signingConfigs {
         if (isRelease) {
@@ -77,6 +80,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Native fault-injection calls plugin APIs that R8 normally inlines.
+            // This opt-in applies to the device-test build, never ordinary CI APKs.
+            if (project.hasProperty("entomaNativeTest")) {
+                proguardFiles("journal-test-rules.pro")
+            }
+            testProguardFiles("journal-test-rules.pro")
         }
     }
 }
