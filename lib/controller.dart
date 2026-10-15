@@ -24,6 +24,14 @@ import 'views/profiles/override_profile.dart';
 import 'solution/session.dart';
 import 'solution/api.dart';
 
+class _ConfigurationClosing extends StateError {
+  _ConfigurationClosing() : super('应用正在退出');
+}
+
+class _ProfileTransactionLease {
+  bool active = true;
+}
+
 class AppController {
   int? lastProfileModified;
   ClashConfig? _acceptedConfig;
@@ -43,6 +51,34 @@ class AppController {
     exit: () async => await system.exit(),
   );
   bool get isClosing => Platform.isMacOS && _macOSExit.isClosing;
+  final Object _profileTransactionKey = Object();
+  bool get _profileTransactionActive =>
+      (Zone.current[_profileTransactionKey] as _ProfileTransactionLease?)
+          ?.active ==
+      true;
+  bool get _configurationClosing => isClosing && !_profileTransactionActive;
+
+  // Admit before replacing a profile. Exit waits for this owned commit/rollback;
+  // delayed callbacks lose permission as soon as the transaction completes.
+  Future<T> runProfileTransaction<T>(Future<T> Function() action) {
+    if (isClosing) return Future.error(_ConfigurationClosing());
+    if (!Platform.isMacOS) return Future<T>.sync(action);
+    final lease = _ProfileTransactionLease();
+    final operation = runZoned(() async {
+      try {
+        return await action();
+      } finally {
+        lease.active = false;
+      }
+    }, zoneValues: {_profileTransactionKey: lease});
+    final tracked =
+        operation.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _coreOperations.add(tracked);
+    tracked.then((_) {
+      _coreOperations.remove(tracked);
+    });
+    return operation;
+  }
 
   Future<void> _coreOperation(Future<void> Function() action) {
     if (!Platform.isMacOS) return action();
@@ -75,7 +111,7 @@ class AppController {
 
   Future<T> _configure<T>(Future<T> Function() action) {
     final operation = _configurationQueue.catchError((_) {}).then((_) {
-      if (isClosing) throw StateError('应用正在退出');
+      if (_configurationClosing) throw _ConfigurationClosing();
       return action();
     });
     _configurationQueue = operation.then<void>((_) {}, onError: (_) {});
@@ -112,8 +148,8 @@ class AppController {
   applyProfileDebounce({
     bool silence = false,
   }) {
-    debouncer.call(FunctionTag.applyProfile, (silence) {
-      applyProfile(silence: silence);
+    debouncer.call(FunctionTag.applyProfile, (silence) async {
+      await _applyProfileFromCallback(silence: silence);
     }, args: [silence]);
   }
 
@@ -368,8 +404,15 @@ class AppController {
   }
 
   Future<Result<bool>> _requestAdmin(bool enableTun) async {
-    if (isClosing) return Result.error('');
     final realTunEnable = _ref.read(realTunEnableProvider);
+    if (isClosing) {
+      // An admitted profile transaction may finish on the existing core, but
+      // cannot authorize/restart a privileged core after exit was requested.
+      if (_profileTransactionActive && enableTun == realTunEnable) {
+        return Result.success(realTunEnable);
+      }
+      throw _ConfigurationClosing();
+    }
     if (enableTun && !globalState.isStart && !_connecting) {
       return Result.success(false);
     }
@@ -399,12 +442,13 @@ class AppController {
   }
 
   _setupClashConfig() async {
-    if (isClosing) return;
+    if (_configurationClosing) throw _ConfigurationClosing();
     await _ref.read(currentProfileProvider)?.checkAndUpdate();
-    if (isClosing) return;
+    if (_configurationClosing) throw _ConfigurationClosing();
     final patchConfig = _ref.read(patchClashConfigProvider);
     final res = await _requestAdmin(patchConfig.tun.enable);
     if (res.isError) {
+      if (_profileTransactionActive) throw StateError('配置尚未应用');
       return;
     }
     return _configure(() async {
@@ -414,7 +458,7 @@ class AppController {
       final params = await globalState.getSetupParams(
         pathConfig: realPatchConfig,
       );
-      if (isClosing) return;
+      if (_configurationClosing) throw _ConfigurationClosing();
       final message = await clashCore.setupConfig(params);
       if (message.isNotEmpty) {
         if (message.contains('rollback failed')) await updateStatus(false);
@@ -438,7 +482,7 @@ class AppController {
   }
 
   Future applyProfile({bool silence = false}) async {
-    if (isClosing) return;
+    if (_configurationClosing) throw _ConfigurationClosing();
     if (silence) {
       await _applyProfile();
     } else {
@@ -451,9 +495,20 @@ class AppController {
     addCheckIpNumDebounce();
   }
 
+  Future<void> _applyProfileFromCallback({bool silence = false}) async {
+    if (isClosing) return;
+    try {
+      await applyProfile(silence: silence);
+    } on _ConfigurationClosing {
+      // A queued UI callback is cancelled by exit; subscription transactions
+      // still receive the explicit failure through applyProfile directly.
+    }
+  }
+
   handleChangeProfile() {
+    if (isClosing) return;
     _ref.read(delayDataSourceProvider.notifier).value = {};
-    applyProfile();
+    unawaited(_applyProfileFromCallback());
     _ref.read(logsProvider.notifier).value = FixedList(500);
     _ref.read(requestsProvider.notifier).value = FixedList(500);
     globalState.cacheHeightMap = {};

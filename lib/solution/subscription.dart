@@ -36,7 +36,6 @@ class SolutionSubscription {
     }
 
     File? staged;
-    File? backup;
     try {
       final access = object(await session.request('/api/v1/subscription'));
       if (access['eligible'] != true || access['accessUrl'] == null) {
@@ -60,49 +59,55 @@ class SolutionSubscription {
         if (result.exitCode != 0) throw const SolutionError('STORAGE_ERROR');
       }
       check();
-      final previous = ref.read(profilesProvider).getProfile(id);
-      final previousId = ref.read(currentProfileIdProvider);
-      if (await target.exists()) backup = await target.rename('$path.previous');
-      try {
-        check();
-        await staged.rename(path);
-        check();
-        final profile =
-            (previous ?? Profile.normal(label: 'Entoma 订阅')).copyWith(
-          id: id,
-          url: '',
-          autoUpdate: false,
-          lastUpdateDate: DateTime.now(),
-        );
-        globalState.appController.setProfile(profile);
-        ref.read(currentProfileIdProvider.notifier).value = id;
-        await globalState.appController.applyProfile(silence: true);
-        check();
-        await globalState.appController.savePreferences();
-        if (backup != null && await backup.exists()) await backup.delete();
-      } catch (_) {
-        if (await target.exists()) await target.delete();
-        if (backup != null && await backup.exists()) await backup.rename(path);
-        if (previous != null) {
-          globalState.appController.setProfile(previous);
-        } else {
-          ref.read(profilesProvider.notifier).deleteProfileById(id);
-        }
-        if (ref.read(currentProfileIdProvider) == id) {
-          ref.read(currentProfileIdProvider.notifier).value = previousId;
-        }
+      final candidateFile = staged;
+      await globalState.appController.runProfileTransaction(() async {
+        File? backup;
+        final previous = ref.read(profilesProvider).getProfile(id);
+        final previousId = ref.read(currentProfileIdProvider);
+        if (await target.exists())
+          backup = await target.rename('$path.previous');
         try {
-          if (ref.read(currentProfileIdProvider) != null) {
-            await globalState.appController.applyProfile(silence: true);
-          } else {
-            await globalState.appController.updateStatus(false);
-          }
+          check();
+          await candidateFile.rename(path);
+          check();
+          final profile =
+              (previous ?? Profile.normal(label: 'Entoma 订阅')).copyWith(
+            id: id,
+            url: '',
+            autoUpdate: false,
+            lastUpdateDate: DateTime.now(),
+          );
+          globalState.appController.setProfile(profile);
+          ref.read(currentProfileIdProvider.notifier).value = id;
+          await globalState.appController.applyProfile(silence: true);
+          check();
+          await globalState.appController.savePreferences();
+          if (backup != null && await backup.exists()) await backup.delete();
         } catch (_) {
-          await globalState.appController.updateStatus(false);
-          throw const SolutionError('CONFIG_ROLLBACK_FAILED');
+          if (await target.exists()) await target.delete();
+          if (backup != null && await backup.exists())
+            await backup.rename(path);
+          if (previous != null) {
+            globalState.appController.setProfile(previous);
+          } else {
+            ref.read(profilesProvider.notifier).deleteProfileById(id);
+          }
+          if (ref.read(currentProfileIdProvider) == id) {
+            ref.read(currentProfileIdProvider.notifier).value = previousId;
+          }
+          try {
+            if (ref.read(currentProfileIdProvider) != null) {
+              await globalState.appController.applyProfile(silence: true);
+            } else {
+              await globalState.appController.updateStatus(false);
+            }
+          } catch (_) {
+            await globalState.appController.updateStatus(false);
+            throw const SolutionError('CONFIG_ROLLBACK_FAILED');
+          }
+          rethrow;
         }
-        rethrow;
-      }
+      });
     } finally {
       try {
         if (staged != null && await staged.exists()) await staged.delete();
