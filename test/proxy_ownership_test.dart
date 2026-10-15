@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_clash/manager/proxy_manager.dart';
+import 'package:fl_clash/controller.dart';
+import 'package:fl_clash/state.dart';
 import 'package:fl_clash/models/models.dart' show ProxyState;
 import 'package:fl_clash/providers/state.dart';
 import 'package:proxy/proxy.dart';
@@ -28,6 +30,12 @@ class FakeNativeProxy extends ProxyPlatform {
     stops++;
     return stopResult;
   }
+}
+
+class _ClosingController extends AppController {
+  _ClosingController(super.context, super.ref);
+  @override
+  bool get isClosing => true;
 }
 
 void main() {
@@ -80,4 +88,33 @@ void main() {
     expect(native.stops, 1);
     expect(tester.takeException(), isNull);
   }, skip: !Platform.isMacOS && !Platform.isWindows);
+
+  testWidgets('macOS closing suppresses new manager and controller starts', (tester) async {
+    final native = FakeNativeProxy();
+    ProxyPlatform.instance = native;
+    final wasInitialized = globalState.isInit;
+    late _ClosingController controller;
+    try {
+      await tester.pumpWidget(ProviderScope(overrides: [
+        proxyStateProvider.overrideWithValue(const ProxyState(
+            isStart: true, systemProxy: true, bassDomain: [], port: 7890))
+      ], child: Consumer(builder: (context, ref, child) {
+        controller = _ClosingController(context, ref);
+        globalState.appController = controller;
+        return const MaterialApp(home: ProxyManager(child: SizedBox()));
+      })));
+      await tester.pumpAndSettle();
+      expect(native.entered.isCompleted, isFalse);
+      expect(native.stops, 1);
+      // Exercise the real controller entry points. The closing check must run
+      // before native core/session/profile work, even if a callback fires late.
+      await controller.updateStatus(true);
+      await controller.restartCore();
+      await controller.applyProfile(silence: true);
+      expect(native.entered.isCompleted, isFalse);
+      expect(tester.takeException(), isNull);
+    } finally {
+      globalState.isInit = wasInitialized;
+    }
+  }, skip: !Platform.isMacOS);
 }

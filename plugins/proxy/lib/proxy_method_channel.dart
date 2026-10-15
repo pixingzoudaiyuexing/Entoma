@@ -23,4 +23,12 @@ class MethodChannelProxy extends ProxyPlatform {
   Future<bool?> stopProxy() async {
     return await methodChannel.invokeMethod<bool>("StopProxy");
   }
+
+  @override
+  Future<bool?> startAutoDns() =>
+      methodChannel.invokeMethod<bool>('StartAutoDns');
+
+  @override
+  Future<bool?> stopAutoDns() =>
+      methodChannel.invokeMethod<bool>('StopAutoDns');
 }

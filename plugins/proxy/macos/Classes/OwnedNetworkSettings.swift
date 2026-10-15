@@ -1,0 +1,155 @@
+import Foundation
+
+enum NetworkSettingKind: String, Hashable { case proxy, dns }
+
+enum NetworkSettingsFailure: Error {
+  case invalidInput, unavailable, changed, writeFailed, restoreFailed
+  case authorizationCancelled, authorizationDenied
+}
+
+struct NetworkProtocolState: Equatable {
+  let configuration: [String: Any]?
+  let enabled: Bool
+
+  static func == (lhs: NetworkProtocolState, rhs: NetworkProtocolState) -> Bool {
+    guard lhs.enabled == rhs.enabled else { return false }
+    switch (lhs.configuration, rhs.configuration) {
+    case (nil, nil): return true
+    case (let a?, let b?): return NSDictionary(dictionary: a).isEqual(to: b)
+    default: return false
+    }
+  }
+}
+
+protocol NetworkSettingsBackend: AnyObject {
+  func primaryService() throws -> String
+  func read(_ kind: NetworkSettingKind, service: String) throws -> NetworkProtocolState
+  func authorize() throws
+  func lock() throws
+  func unlock()
+  func synchronize()
+  func set(_ state: NetworkProtocolState, kind: NetworkSettingKind, service: String) throws
+  func commit() throws
+  func apply() throws
+}
+
+/// All operations run on the plugin's serial queue. Snapshots identify the exact
+/// service, dictionary (including nil), and protocol enabled state we changed.
+final class OwnedNetworkSettings {
+  private struct Snapshot {
+    let service: String
+    let original: NetworkProtocolState
+    var applied: NetworkProtocolState
+    var restoring = false
+  }
+  private let backend: NetworkSettingsBackend
+  private var snapshots: [NetworkSettingKind: Snapshot] = [:]
+
+  init(backend: NetworkSettingsBackend) { self.backend = backend }
+
+  func startProxy(port: Int, bypass: [String]) throws {
+    guard (1024...65535).contains(port), bypass.count <= 256,
+          bypass.allSatisfy({ $0.utf8.count <= 1024 && !$0.unicodeScalars.contains(where: {
+            $0.value < 32 || $0.value == 127
+          }) }) else { throw NetworkSettingsFailure.invalidInput }
+    try start(.proxy) { current in
+      var next = current.configuration ?? [:]
+      for prefix in ["HTTP", "HTTPS", "SOCKS"] {
+        next["\(prefix)Enable"] = 1
+        next["\(prefix)Proxy"] = "127.0.0.1"
+        next["\(prefix)Port"] = port
+      }
+      next["ProxyAutoConfigEnable"] = 0
+      next["ProxyAutoDiscoveryEnable"] = 0
+      next["ExceptionsList"] = bypass
+      return NetworkProtocolState(configuration: next, enabled: true)
+    }
+  }
+
+  func startAutoDns() throws {
+    try start(.dns) { current in
+      var next = current.configuration ?? [:]
+      if let value = next["ServerAddresses"], !(value is [String]) {
+        throw NetworkSettingsFailure.unavailable
+      }
+      var servers = next["ServerAddresses"] as? [String] ?? []
+      // Keep the existing auto-DNS resolver and user entries. Matching settings
+      // are a no-op, not proof that this application owns them.
+      if servers.contains("223.5.5.5") { return nil }
+      servers.append("223.5.5.5")
+      next["ServerAddresses"] = servers
+      return NetworkProtocolState(configuration: next, enabled: true)
+    }
+  }
+
+  private func start(_ kind: NetworkSettingKind,
+                     desired: (NetworkProtocolState) throws -> NetworkProtocolState?) throws {
+    guard snapshots[kind]?.restoring != true else { throw NetworkSettingsFailure.restoreFailed }
+    let service = try backend.primaryService()
+    let current = try backend.read(kind, service: service)
+    if let previous = snapshots[kind],
+       previous.service != service || previous.applied != current {
+      throw NetworkSettingsFailure.changed
+    }
+    guard let next = try desired(current), next != current else { return }
+    // Interaction occurs before locking preferences. Recheck after authorization:
+    // the user or another network client may have changed settings in the dialog.
+    try backend.authorize()
+    try backend.lock()
+    defer { backend.unlock() }
+    guard try backend.primaryService() == service,
+          try backend.read(kind, service: service) == current else { throw NetworkSettingsFailure.changed }
+    var owned = snapshots[kind] ?? Snapshot(service: service, original: current, applied: current)
+    owned.applied = next
+    snapshots[kind] = owned
+    do {
+      try backend.set(next, kind: kind, service: service)
+      try backend.commit()
+      try backend.apply()
+    } catch {
+      do {
+        try backend.set(owned.original, kind: kind, service: service)
+        try backend.commit()
+        owned.restoring = true
+        snapshots[kind] = owned
+        try backend.apply()
+        snapshots[kind] = nil
+      } catch {
+        backend.synchronize()
+        if !owned.restoring, let actual = try? backend.read(kind, service: service) {
+          owned.applied = actual
+          snapshots[kind] = owned
+        }
+      }
+      throw NetworkSettingsFailure.writeFailed
+    }
+  }
+
+  func stop(_ kind: NetworkSettingKind) throws {
+    guard var owned = snapshots[kind] else { return }
+    let current = try backend.read(kind, service: owned.service)
+    if !owned.restoring && current == owned.original { snapshots[kind] = nil; return }
+    let expected = owned.restoring ? owned.original : owned.applied
+    guard current == expected else { snapshots[kind] = nil; return }
+    try backend.authorize()
+    try backend.lock()
+    defer { backend.unlock() }
+    guard try backend.read(kind, service: owned.service) == expected else {
+      snapshots[kind] = nil
+      return
+    }
+    do {
+      if !owned.restoring {
+        try backend.set(owned.original, kind: kind, service: owned.service)
+        try backend.commit()
+        owned.restoring = true
+        snapshots[kind] = owned
+      }
+      try backend.apply()
+      snapshots[kind] = nil
+    } catch {
+      backend.synchronize()
+      throw NetworkSettingsFailure.restoreFailed
+    }
+  }
+}
