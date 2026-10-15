@@ -26,6 +26,7 @@ android {
     namespace = "com.follow.clash"
     compileSdk = 36
     ndkVersion = "29.0.14206865"
+    buildFeatures { buildConfig = true }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -43,6 +44,7 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         testInstrumentationRunner = "com.it_nomads.fluttersecurestorage.JournalStorageInstrumentation"
+        buildConfigField("boolean", "ENTOMA_NETWORK_ACCEPTANCE", project.hasProperty("entomaNetworkAcceptance").toString())
         // The MVP bundles one matching Flutter/Go/JNI architecture.
         ndk {
             abiFilters.clear()

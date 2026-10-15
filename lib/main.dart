@@ -17,6 +17,7 @@ import 'clash/core.dart';
 import 'clash/lib.dart';
 import 'common/common.dart';
 import 'models/models.dart';
+import 'diagnostics/android_network_acceptance.dart';
 
 Future<void> main() async {
   globalState.isService = false;
@@ -32,6 +33,10 @@ Future<void> main() async {
   // 注册 WidgetsBindingObserver 来监听应用生命周期事件
 
   runApp(ProviderScope(child: const Application()));
+  if (Platform.isAndroid &&
+      const bool.fromEnvironment('ENTOMA_NETWORK_ACCEPTANCE')) {
+    unawaited(runAndroidNetworkAcceptance());
+  }
 }
 
 @pragma('vm:entry-point')
@@ -125,7 +130,7 @@ class _TileListenerWithService with TileListener {
   final Function() _onStop;
 
   const _TileListenerWithService({required Function() onStop})
-    : _onStop = onStop;
+      : _onStop = onStop;
 
   @override
   void onStop() {
@@ -138,7 +143,7 @@ class _VpnListenerWithService with VpnListener {
   final Function(String dns) _onDnsChanged;
 
   const _VpnListenerWithService({required Function(String dns) onDnsChanged})
-    : _onDnsChanged = onDnsChanged;
+      : _onDnsChanged = onDnsChanged;
 
   @override
   void onDnsChanged(String dns) {
