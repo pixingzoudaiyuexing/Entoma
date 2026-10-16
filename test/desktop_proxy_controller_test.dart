@@ -281,6 +281,16 @@ void main() {
     globalState.stopUpdateTasks();
   });
 
+  test('acknowledged running state survives a backward wall-clock adjustment',
+      () {
+    // Simulate the system clock moving backwards after the native start reply.
+    // Elapsed time must not revoke a running listener or manufacture a stop.
+    globalState.startTime = DateTime.now().add(const Duration(seconds: 1));
+    expect(globalState.isStart, true);
+    globalState.startTime = null;
+    expect(globalState.isStart, false);
+  });
+
   for (final autoRun in [false, true]) {
     for (final mode in [false, true]) {
       for (final earlyIntent
@@ -557,7 +567,10 @@ void main() {
         await Future.wait([stopping, connecting])
             .timeout(const Duration(seconds: 3));
         expect(core.starts, previousStarts + 2);
-        expect(native.writes, 1);
+        expect(native.writes, 1,
+            reason: 'phase=${controller.desktopProxy.phase}, '
+                'failure=${controller.desktopProxy.failure}, '
+                'starts=${core.starts}, running=${globalState.isStart}');
         expect(controller.desktopProxy.phase, DesktopProxyPhase.connected);
         core.stopGate = null;
         core.stopEntered = null;

@@ -49,7 +49,9 @@ class GlobalState {
   GlobalKey<CommonScaffoldState> homeScaffoldKey = GlobalKey();
   bool isInit = false;
 
-  bool get isStart => startTime != null && startTime!.isBeforeNow;
+  // Native start/stop acknowledgements own this state. Comparing wall time
+  // loses liveness in the start tick or after the system clock moves backwards.
+  bool get isStart => startTime != null;
 
   AppController get appController => _appController!;
 
