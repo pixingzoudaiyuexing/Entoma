@@ -25,6 +25,50 @@ change system security policy. Formal Independent Delta Review remains required.
 
 ## Components
 
+## Compatibility and minimum signing inputs
+
+The GUI/pod deployment target remains macOS10.15. The current Helper candidate
+implements system proxy only on13+; `StartProxy` and `GetProxyStatus` fail
+explicitly on10.15–12, with no legacy fallback. This is a real compatibility gap
+relative to main, not permission to silently raise minimum supported macOS.
+Neither PR is a distributable macOS candidate until an Owner-approved support
+decision or independently reviewed compatibility implementation closes this gate.
+PR #8 alone also lacks the new native state protocol: combined macOS review must
+use PR #9's full tree. Keep the temporary-session branch separate.
+
+The least external inputs for the positive signed-Helper acceptance path are:
+
+1. An effective Developer ID Application signing identity in this Mac's signing
+   environment (or a controlled signing executor), with its private key usable by
+   codesign. Owner configures it through Apple/Xcode; handoff only the public
+   identity name/fingerprint and Team ID, never a private key, P12 password or
+   Apple Account password. Recheck validity before building.
+2. A macOS13+ controlled test Mac and Owner completion of the first daemon/system
+   approval. Existing protected administrator prompts remain Owner operations.
+3. For a notarized acceptance artifact, Owner configures a notarytool credential
+   profile in that signing environment and supplies only its profile name, or
+   returns the signed/notarized artifact with verification evidence. This is not
+   needed for code-level review and is not a request for account credentials.
+4. If the PKG itself must be signed, Developer ID Installer is additionally
+   required; an app ZIP acceptance artifact does not require that second identity.
+
+Apple Development, Apple Distribution, ad-hoc and Developer ID Installer do not
+satisfy this implementation's Developer ID Application leaf OID requirement
+`1.2.840.113635.100.6.1.13`. A development-signed daemon must not be accepted by
+relaxing the production peer requirement to make tests pass. Apple documents the
+different code-signing identities in [TN3127](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements)
+and the [certificate overview](https://developer.apple.com/help/account/certificates/certificates-overview/).
+
+After those inputs exist, embed using the existing script, finalize and verify
+GUI/helper identities and signature chain, notarize/staple where required, then
+test registration, approval, signed XPC, repeated toggles, cold start, denial,
+recovery, abnormal exit, safe unregister and selected-node HTTPS chains. Record
+the final signed binary hashes, signature requirements, exact source SHA and
+before/after network ownership evidence separately. Current unsigned CI PKGs do
+not embed the Helper and cannot establish that acceptance.
+
+## Component map
+
 | File | Responsibility |
 |---|---|
 | `plugins/proxy/macos/Classes/ProxyHelperProtocol.swift` | Fixed ObjC-compatible XPC methods, bounded input, self-signature and peer requirement policy |
