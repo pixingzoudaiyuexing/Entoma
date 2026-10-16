@@ -56,6 +56,11 @@ jobs:
         run: |
           c++ -std=c++17 -Wall -Wextra -Werror test/native/windows_proxy_state_test.cpp -o "$RUNNER_TEMP/windows-proxy-policy-tests"
           "$RUNNER_TEMP/windows-proxy-policy-tests"
+      - name: macOS ownership and restricted helper tests
+        if: matrix.platform == 'macos'
+        run: |
+          bash tool/test_macos_network_ownership.sh
+          bash tool/test_macos_proxy_helper.sh
       - uses: android-actions/setup-android@00854ea68c109d98c75d956347303bf7c45b0277
         if: matrix.platform == 'android'
         with:
@@ -76,7 +81,10 @@ jobs:
         if: matrix.platform == 'macos'
         run: |
           mkdir -p dist
-          pkgbuild --component build/macos/Build/Products/Release/Entoma.app --install-location /Applications --identifier com.entoma.client --version 0.1.0 dist/Entoma-0.1.0-macos.pkg
+          ENTOMA_PACKAGE_STAGE="$(mktemp -d)"
+          pkgbuild --component build/macos/Build/Products/Release/Entoma.app --install-location /Applications --identifier com.entoma.client --version 0.1.0 "$ENTOMA_PACKAGE_STAGE/Entoma-component.pkg"
+          productbuild --product packaging/macos/requirements.plist --package "$ENTOMA_PACKAGE_STAGE/Entoma-component.pkg" dist/Entoma-0.1.0-macos.pkg
+          python3 tool/verify_macos_minimum.py --app build/macos/Build/Products/Release/Entoma.app --pkg dist/Entoma-0.1.0-macos.pkg --output dist/Entoma-macos-minimum.json
           ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/Entoma.app dist/Entoma-0.1.0-macos.zip
       - name: Package Windows test installer
         if: matrix.platform == 'windows'

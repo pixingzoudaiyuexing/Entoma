@@ -104,13 +104,12 @@ gates may #8 merge normally and #9's base move to main. Record the resulting
 base/head and verify the exact delta and runtime tree without rebase/force push.
 Do not silently include the independent temporary-session auth branch.
 
-The app's minimum deployment target remains 10.15. The proposed Helper backend
-requires macOS13+ and currently removes the old system-proxy path on10.15–12.
-That is an unresolved feature-compatibility gap, not approval to drop supported
-systems. The macOS combination remains gated until an approved compatibility
-implementation or an explicit Owner decision on minimum support; merely keeping
-the app build target at10.15 is insufficient. No target or fallback security
-policy is changed by this startup-semantic correction.
+Owner's2026-10-17 decision sets the first public test version's minimum to
+macOS13.0. Xcode, CocoaPods and the owned macOS plugins target13.0; the installer
+also rejects older systems. macOS10.15–12 are no longer supported and no legacy
+proxy fallback is planned. See [the minimum-version delta](MACOS-13-DELTA.md).
+This closes the product support decision, not the signed-Helper/device or formal
+delta-review gates. No one-click coordinator or Helper permission policy changes.
 
 ## References used only for design comparison
 

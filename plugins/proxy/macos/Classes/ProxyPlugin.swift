@@ -119,7 +119,18 @@ private final class MacNetworkSettingsBackend: NetworkSettingsBackend {
 
 public class ProxyPlugin: NSObject, FlutterPlugin {
   private let queue = DispatchQueue(label: "com.entoma.network-settings")
+  // DNS remains on its existing independently authorized path. The helper is
+  // deliberately incapable of DNS or TUN operations.
   private let owner = OwnedNetworkSettings(backend: MacNetworkSettingsBackend())
+  private var helperClient: Any?
+
+  @available(macOS 13.0, *)
+  private func helper() -> ProxyHelperClient {
+    if let value = helperClient as? ProxyHelperClient { return value }
+    let value = ProxyHelperClient()
+    helperClient = value
+    return value
+  }
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "proxy", binaryMessenger: registrar.messenger)
@@ -127,34 +138,63 @@ public class ProxyPlugin: NSObject, FlutterPlugin {
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-    guard ["StartProxy", "StopProxy", "StartAutoDns", "StopAutoDns"].contains(call.method) else {
+    guard ["StartProxy", "StopProxy", "GetProxyStatus", "HelperStatus", "RegisterHelper", "UnregisterHelper",
+           "StartAutoDns", "StopAutoDns"].contains(call.method) else {
       result(FlutterMethodNotImplemented)
       return
     }
     let args = call.arguments as? [String: Any]
     queue.async {
       do {
+        var value: Any = true
         switch call.method {
-        case "StartProxy":
+        case "StartProxy", "GetProxyStatus":
           guard let port = args?["port"] as? Int, let bypass = args?["bypassDomain"] as? [String] else {
             throw NetworkSettingsFailure.invalidInput
           }
-          try self.owner.startProxy(port: port, bypass: bypass)
-        case "StopProxy": try self.owner.stop(.proxy)
+          guard #available(macOS 13.0, *) else { throw ProxyHelperFailure.unsupported }
+          if call.method == "GetProxyStatus" {
+            value = try self.helper().status(port: port, bypass: bypass)
+          } else { _ = try self.helper().apply(port: port, bypass: bypass) }
+        case "StopProxy":
+          // No connection has ever existed in this plugin instance, so this
+          // instance cannot own a helper transaction. The daemon restores an
+          // old connection on invalidation and recovers its journal at startup.
+          if #available(macOS 13.0, *), let helper = self.helperClient as? ProxyHelperClient,
+             helper.needsRestoration {
+            _ = try helper.restore()
+          }
+        case "HelperStatus", "RegisterHelper", "UnregisterHelper":
+          guard #available(macOS 13.0, *) else { throw ProxyHelperFailure.unsupported }
+          switch call.method {
+          case "RegisterHelper": value = try self.helper().register()
+          case "UnregisterHelper": value = try self.helper().unregister()
+          default: value = try self.helper().registrationStatus()
+          }
         case "StartAutoDns": try self.owner.startAutoDns()
         default: try self.owner.stop(.dns)
         }
-        DispatchQueue.main.async { result(true) }
+        DispatchQueue.main.async { result(value) }
       } catch {
         let code: String
         switch error {
+        case let helper as ProxyHelperFailure: code = helper.rawValue
         case NetworkSettingsFailure.authorizationCancelled: code = "NETWORK_PERMISSION_CANCELLED"
         case NetworkSettingsFailure.authorizationDenied: code = "NETWORK_PERMISSION_DENIED"
         case NetworkSettingsFailure.changed: code = "NETWORK_SETTINGS_CHANGED"
         case NetworkSettingsFailure.restoreFailed: code = "NETWORK_RESTORE_FAILED"
+        case NetworkSettingsFailure.journalFailed: code = "HELPER_RECOVERY_REQUIRED"
         default: code = "NETWORK_SETTINGS_FAILED"
         }
-        DispatchQueue.main.async { result(FlutterError(code: code, message: code, details: nil)) }
+        var details: [String: Any] = ["available": false]
+        let unknown = [ProxyHelperFailure.operationUnknown.rawValue,
+                       ProxyHelperFailure.recoveryRequired.rawValue,
+                       ProxyHelperFailure.restoreFailed.rawValue].contains(code)
+        details["restorationPending"] = unknown
+        if #available(macOS 13.0, *), let helper = self.helperClient as? ProxyHelperClient {
+          details["restorationPending"] = unknown || helper.needsRestoration
+        }
+        DispatchQueue.main.async { result(FlutterError(code: code, message: code, details: details)) }
       }
     }
   }

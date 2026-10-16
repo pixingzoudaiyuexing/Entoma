@@ -138,7 +138,7 @@ Orange 是基于 [FlClash v0.8.85](https://github.com/chen08209/FlClash) 的增�
 |-----|------|------|
 | Android | ✅ 支持 | 推荐 Android 7.0+ |
 | Windows | ✅ 支持 | Windows 10+ |
-| macOS | ✅ 支持 | macOS 10.14+ |
+| macOS | ✅ 支持 | macOS 13.0+（Entoma 首个公开测试版本） |
 | Linux | ✅ 支持 | 需安装依赖 |
 | iOS | ⏳ 规划中 | 待适配 |
 

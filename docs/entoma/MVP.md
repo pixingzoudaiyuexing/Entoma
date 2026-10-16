@@ -1,5 +1,11 @@
 # Entoma client MVP
 
+Current macOS support decision (Owner,2026-10-17): the first public test version
+requires macOS13.0 or later. macOS10.15–12 are no longer supported; no legacy
+Helper fallback is planned. [MACOS-13-DELTA.md](MACOS-13-DELTA.md) records the
+build/installer validation and remaining review, signing and device gates.
+Historical evidence below retains its original platform/version boundaries.
+
 This client reuses FlClash's native core, dashboard, node/group selection, delay tests,
 profiles, settings, tray/window integration, logs and platform VPN components. It
 uses an independent HTTPS Solution adapter for accounts and business features.
