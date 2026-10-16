@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:fl_clash/common/desktop_proxy.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/common/proxy.dart';
 import 'package:fl_clash/models/models.dart';
@@ -7,6 +8,7 @@ import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class ProxyManager extends ConsumerStatefulWidget {
@@ -30,14 +32,17 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     final previous = _lastDesktopState;
     _lastDesktopState = value;
     if (!ref.read(initProvider)) return;
-    if (previous == null ||
-        previous.systemProxy != value.systemProxy ||
-        previous.port != value.port ||
-        previous.bassDomain != value.bassDomain) {
-      // A failed transaction is only retried by a new explicit intent/config.
-      unawaited(controller.desktopProxy.request(value.systemProxy));
+    final coordinator = controller.desktopProxy;
+    if (previous != null &&
+        coordinator.desired &&
+        coordinator.phase == DesktopProxyPhase.connected &&
+        (previous.port != value.port ||
+            !listEquals(previous.bassDomain, value.bassDomain))) {
+      // A configuration observation can update an existing connection, never
+      // turn a saved mode preference into a new connection or failed retry.
+      unawaited(coordinator.request(true));
     } else {
-      unawaited(controller.desktopProxy.verify());
+      unawaited(coordinator.verify());
     }
   }
 

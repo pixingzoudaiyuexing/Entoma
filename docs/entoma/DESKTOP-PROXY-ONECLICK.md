@@ -7,6 +7,20 @@ preserved separately. This branch does not silently include that auth change.
 
 ## Behavior
 
+The saved `NetworkProps.systemProxy` boolean is a mode preference, not an
+instruction to connect on every mount. The session coordinator's `desired`
+value starts false. Controller initialization alone decides whether `autoRun`
+starts the core and the preferred mode. `autoRun=false` preserves the saved
+preference without starting a listener or writing a new proxy. A user intent
+issued while initialization is waiting supersedes the late startup decision.
+
+Manager mount/readiness observes state; it never manufactures a connect intent.
+Port/bypass changes can reconfigure an established connection, but cannot retry
+a failed or disconnected one. Explicit switches and tray actions are submitted
+once by the controller. Tray checks use session intent; Retry repeats that
+intent, including off/recovery, rather than the saved mode. Manual core start
+uses the preferred mode; stopping the core does not erase that preference.
+
 Dashboard, network settings and tray all submit the same system-proxy intent.
 `DesktopProxyCoordinator` serializes native writes and rollback, converging on
 the latest intent after rapid clicks. Its observable phases are CONNECTING,
@@ -81,6 +95,22 @@ does not establish this new one-click flow has passed on those devices.
 Both changes require formal independent review before merge. No release,
 production deployment, real financial operation, authdb/sudoers modification or
 unsigned privileged service installation is authorized by these test results.
+
+PR #8 alone does not implement the new macOS native status protocol. It is not
+a macOS runnable/distributable candidate. Review shared control/Windows against
+main and the Helper increment against the exact #8 HEAD; use #9's full tree for
+combined macOS review and acceptance. Only after accepted review and product
+gates may #8 merge normally and #9's base move to main. Record the resulting
+base/head and verify the exact delta and runtime tree without rebase/force push.
+Do not silently include the independent temporary-session auth branch.
+
+The app's minimum deployment target remains 10.15. The proposed Helper backend
+requires macOS13+ and currently removes the old system-proxy path on10.15–12.
+That is an unresolved feature-compatibility gap, not approval to drop supported
+systems. The macOS combination remains gated until an approved compatibility
+implementation or an explicit Owner decision on minimum support; merely keeping
+the app build target at10.15 is insufficient. No target or fallback security
+policy is changed by this startup-semantic correction.
 
 ## References used only for design comparison
 

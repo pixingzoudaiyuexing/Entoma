@@ -150,6 +150,8 @@ class VpnProps with _$VpnProps {
 @freezed
 class NetworkProps with _$NetworkProps {
   const factory NetworkProps({
+    // Desktop mode preference only. Session intent is held by the connection
+    // coordinator; autoRun independently controls starting at application boot.
     @Default(true) bool systemProxy,
     @Default(defaultBypassDomain) List<String> bypassDomain,
     @Default(RouteMode.config) RouteMode routeMode,

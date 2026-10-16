@@ -124,12 +124,15 @@ void main() {
           return const MaterialApp(home: ProxyManager(child: SizedBox()));
         })));
     await tester.pump();
+    final connecting = controller.setSystemProxyEnabled(true);
+    await tester.pump();
     await native.entered.future;
     await tester.pumpWidget(const SizedBox.shrink());
     expect(native.stops, 0);
     final exiting = controller.desktopProxy.prepareForExit();
     native.startBlock!.complete(true);
     await tester.pumpAndSettle();
+    await connecting;
     expect(await exiting, true);
     expect(native.stops, 1);
     expect(tester.takeException(), isNull);

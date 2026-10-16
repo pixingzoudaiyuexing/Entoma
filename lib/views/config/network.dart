@@ -178,8 +178,8 @@ class SystemProxyItem extends ConsumerWidget {
                 TextButton.icon(
                     icon: const Icon(Icons.refresh),
                     label: const Text('重试'),
-                    onPressed: () => globalState.appController
-                        .setSystemProxyEnabled(systemProxy)),
+                    onPressed: () =>
+                        globalState.appController.retrySystemProxy()),
             ]),
       delegate: SwitchDelegate(
         value: coordinator?.desired ?? systemProxy,
