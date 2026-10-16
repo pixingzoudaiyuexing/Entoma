@@ -176,23 +176,26 @@ void main() {
     late ClashHandlerInterface oldCore;
     final oldPaths = PathProviderPlatform.instance;
     final core = _RollbackCore();
-    addTearDown(() => clashCore.clashInterface = oldCore);
 
     await tester.runAsync(() async {
-      oldCore = clashCore.clashInterface;
-      clashCore.clashInterface = core;
-      // Construct the configuration queue in the real async zone: a pending
-      // Future.value created in FakeAsync cannot progress inside runAsync.
-      controller = _Controller(controller.context, controller.fixtureRef)
-        ..fixture = actions.coordinator;
-      globalState.appController = controller;
+      // Windows' TCP service can reach appPath before an awaited file-system
+      // operation returns. Install paths before constructing that service;
+      // otherwise the unmocked plugin leaves dataDir unresolved in this test.
       final directory =
           await Directory.systemTemp.createTemp('entoma-proxy-rollback-');
       PathProviderPlatform.instance = FixturePaths(directory.path);
       final oldData = appPath.dataDir;
-      await oldData.future;
-      appPath.dataDir = Completer<Directory>()..complete(directory);
       try {
+        await oldData.future.timeout(const Duration(seconds: 2));
+        oldCore = clashCore.clashInterface;
+        clashCore.clashInterface = core;
+        addTearDown(() => clashCore.clashInterface = oldCore);
+        // Construct the configuration queue in the real async zone: a pending
+        // Future.value created in FakeAsync cannot progress inside runAsync.
+        controller = _Controller(controller.context, controller.fixtureRef)
+          ..fixture = actions.coordinator;
+        globalState.appController = controller;
+        appPath.dataDir = Completer<Directory>()..complete(directory);
         final profile = Profile(
             id: 'one-click-fixture',
             autoUpdateDuration: const Duration(days: 1));
