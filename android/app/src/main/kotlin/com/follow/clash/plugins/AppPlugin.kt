@@ -322,14 +322,19 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     }
 
     fun requestVpnPermission(callBack: () -> Unit) {
+        if (GlobalState.isExitRequested) return
         vpnCallBack = callBack
         val intent = VpnService.prepare(FlClashApplication.getAppContext())
         if (intent != null) {
             activityRef?.get()?.startActivityForResult(intent, VPN_PERMISSION_REQUEST_CODE)
             return
         }
-        vpnCallBack?.invoke()
+        val pending = vpnCallBack
+        vpnCallBack = null
+        pending?.invoke()
     }
+
+    fun cancelVpnPermissionRequest() { vpnCallBack = null }
 
     fun requestNotificationsPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -448,10 +453,10 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     private fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
         if (requestCode == VPN_PERMISSION_REQUEST_CODE) {
-            if (resultCode == FlutterActivity.RESULT_OK) {
-                GlobalState.initServiceEngine()
-                vpnCallBack?.invoke()
-            }
+            val pending = vpnCallBack
+            vpnCallBack = null
+            // Never resurrect an engine for a stale permission result after exit.
+            if (resultCode == FlutterActivity.RESULT_OK && !GlobalState.isExitRequested) pending?.invoke()
         }
         return true
     }

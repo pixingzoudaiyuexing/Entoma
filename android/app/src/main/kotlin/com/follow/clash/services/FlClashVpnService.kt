@@ -20,12 +20,16 @@ import com.follow.clash.models.VpnOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CompletableDeferred
 
 
 class FlClashVpnService : VpnService(), BaseServiceInterface {
+    override val destroyed = CompletableDeferred<Unit>()
     override fun onCreate() {
         super.onCreate()
         GlobalState.initServiceEngine()
+        GlobalState.getCurrentVPNPlugin()?.onServiceCreated(this)
+        if (GlobalState.isExitRequested) stop()
     }
 
     override fun start(options: VpnOptions): Int {
@@ -130,9 +134,7 @@ class FlClashVpnService : VpnService(), BaseServiceInterface {
 
     override fun stop() {
         stopSelf()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        }
+        stopFlClashForeground()
     }
 
     private var cachedBuilder: NotificationCompat.Builder? = null
@@ -146,8 +148,12 @@ class FlClashVpnService : VpnService(), BaseServiceInterface {
 
     @SuppressLint("ForegroundServiceType")
     override suspend fun startForeground(title: String, content: String) {
+        val builder = notificationBuilder()
+        // Recheck after the last suspend point, immediately before the framework call.
+        if (destroyed.isCompleted || GlobalState.isExitRequested ||
+            GlobalState.getCurrentVPNPlugin()?.isNativeRunning() != true) return
         startForeground(
-            notificationBuilder()
+            builder
                 .setContentTitle(title)
                 .setContentText(content).build()
         )
@@ -187,7 +193,20 @@ class FlClashVpnService : VpnService(), BaseServiceInterface {
     }
 
     override fun onDestroy() {
-        stop()
-        super.onDestroy()
+        try {
+            stop()
+            super.onDestroy()
+            destroyed.complete(Unit)
+            GlobalState.getCurrentVPNPlugin()?.onServiceDestroyed(this)
+        } catch (error: Exception) {
+            destroyed.completeExceptionally(error)
+            throw error
+        }
+    }
+
+    override fun onRevoke() {
+        // Revocation also invalidates pending authorization/Binder callbacks.
+        GlobalState.getCurrentVPNPlugin()?.handleStop()
+        super.onRevoke()
     }
 }

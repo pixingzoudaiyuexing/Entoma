@@ -64,6 +64,9 @@ jobs:
         env:
           ENTOMA_PLATFORM: ${{ matrix.platform }}
         run: bash tool/build_mvp.sh "$ENTOMA_PLATFORM"
+      - name: Android VPN lifecycle unit tests
+        if: matrix.platform == 'android'
+        run: (cd android && ./gradlew :app:testReleaseUnitTest --console=plain --no-daemon)
       - name: Package macOS test installer
         if: matrix.platform == 'macos'
         run: |

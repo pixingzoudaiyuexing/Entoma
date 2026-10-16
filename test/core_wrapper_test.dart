@@ -10,6 +10,8 @@ class TestInterface implements ClashHandlerInterface {
   @override
   Future<bool> stopListener() async => accepted;
   @override
+  Future<bool> shutdown() async => accepted;
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -19,6 +21,7 @@ void main() {
       final core = ClashCore.withInterface(TestInterface(result));
       expect(await core.startListener(), result);
       expect(await core.stopListener(), result);
+      expect(await core.shutdown(), result);
     });
   }
 }

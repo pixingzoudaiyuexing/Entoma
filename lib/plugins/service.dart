@@ -29,6 +29,9 @@ class Service {
     return await methodChannel.invokeMethod<bool>("destroy");
   }
 
+  Future<bool?> beginExit() => methodChannel.invokeMethod<bool>('beginExit');
+  Future<bool?> cancelExit() => methodChannel.invokeMethod<bool>('cancelExit');
+
   Future<bool?> startVpn() async {
     final options = await clashLib?.getAndroidVpnOptions();
     return await methodChannel.invokeMethod<bool>("startVpn", {
@@ -41,4 +44,5 @@ class Service {
   }
 }
 
-Service? get service => Platform.isAndroid && !globalState.isService ? Service() : null;
+Service? get service =>
+    Platform.isAndroid && !globalState.isService ? Service() : null;
