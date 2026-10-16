@@ -37,6 +37,7 @@ class _ProfileTransactionLease {
 
 class AppController {
   bool _manualCoreUse = false;
+  int _desktopIntentRevision = 0;
   bool get usesDesktopProxy => Platform.isMacOS || Platform.isWindows;
   late final desktopProxy = DesktopProxyCoordinator(
     configuration: () => DesktopProxyConfiguration(
@@ -272,11 +273,15 @@ class AppController {
       });
 
   Future<void> updateStatus(bool isStart) async {
+    int? desktopRevision;
     if (usesDesktopProxy) {
       if (isClosing && isStart) return;
+      desktopRevision = ++_desktopIntentRevision;
       _manualCoreUse = isStart;
       if (!isStart) {
-        await setSystemProxyEnabled(false);
+        // Stopping the connection preserves the mode used by the next manual
+        // start or autoRun. A saved preference is not a current-session intent.
+        await desktopProxy.request(false);
         if (desktopProxy.phase == DesktopProxyPhase.failed) {
           throw StateError('系统代理尚未恢复，核心已保留');
         }
@@ -287,6 +292,12 @@ class AppController {
       }
     }
     await _updateCoreStatus(isStart);
+    if (usesDesktopProxy &&
+        isStart &&
+        !isClosing &&
+        desktopRevision == _desktopIntentRevision) {
+      await desktopProxy.request(_ref.read(networkSettingProvider).systemProxy);
+    }
   }
 
   Future<void> _updateCoreStatus(bool isStart) async {
@@ -912,6 +923,9 @@ class AppController {
     if (Platform.isAndroid) {
       await globalState.updateStartTime();
     }
+    // A user may already have clicked while account/core initialization was
+    // pending. Late startup must not replace that newer explicit intent.
+    if (usesDesktopProxy && _desktopIntentRevision != 0) return;
     final status = globalState.isStart == true
         ? true
         : _ref.read(appSettingProvider).autoRun;
@@ -1167,14 +1181,22 @@ class AppController {
 
   Future<void> setSystemProxyEnabled(bool enabled) async {
     if (isClosing && enabled) return;
+    if (usesDesktopProxy) _desktopIntentRevision++;
     _ref.read(networkSettingProvider.notifier).updateState(
           (state) => state.copyWith(systemProxy: enabled),
         );
     if (usesDesktopProxy) await desktopProxy.request(enabled);
   }
 
-  updateSystemProxy() =>
-      setSystemProxyEnabled(!_ref.read(networkSettingProvider).systemProxy);
+  updateSystemProxy() => setSystemProxyEnabled(usesDesktopProxy
+      ? !desktopProxy.desired
+      : !_ref.read(networkSettingProvider).systemProxy);
+
+  Future<void> retrySystemProxy() async {
+    if (!usesDesktopProxy) return;
+    _desktopIntentRevision++;
+    await desktopProxy.request(desktopProxy.desired);
+  }
 
   Future<List<Package>> getPackages() async {
     if (_ref.read(isMobileViewProvider)) {

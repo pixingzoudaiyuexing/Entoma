@@ -169,8 +169,8 @@ class SystemProxyButton extends StatelessWidget {
                       IconButton(
                           tooltip: '重试',
                           icon: const Icon(Icons.refresh),
-                          onPressed: () => globalState.appController
-                              .setSystemProxyEnabled(systemProxy)),
+                          onPressed: () =>
+                              globalState.appController.retrySystemProxy()),
                     Switch(
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       value: coordinator?.desired ?? systemProxy,
