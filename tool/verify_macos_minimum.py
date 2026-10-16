@@ -115,11 +115,17 @@ def main():
         require(len(payloads) == 1, "Expected one actual Entoma app payload")
         payload = app(payloads[0])
         require(payload == built, "Installer payload differs from the verified built app")
+        tracked_diff = command(
+            "git", "diff", "--no-ext-diff", "--no-color", "--ignore-submodules=all", "HEAD", "--")
         report = {
             "sourceSha": command("git", "rev-parse", "HEAD").strip(),
-            "trackedSourceDirty": subprocess.run(
-                ["git", "diff", "--quiet", "--ignore-submodules=all", "HEAD"],
-                check=False).returncode != 0,
+            "trackedSourceDirty": bool(tracked_diff),
+            # Flutter/CocoaPods may regenerate tracked integration metadata.
+            # Preserve the exact delta instead of treating an unexplained dirty
+            # flag as proof that the built source equals the checkout.
+            "trackedSourceChanges": command(
+                "git", "diff", "--name-status", "--ignore-submodules=all", "HEAD", "--").splitlines(),
+            "trackedSourceDiff": tracked_diff,
             "requiredMacOS": "13.0", "app": built,
             "installer": {"minimum": ranges[0].get("min"),
                           "architectures": sorted(installer_architectures),

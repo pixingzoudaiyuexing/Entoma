@@ -37,6 +37,9 @@ targets13.0 for arm64 and x86_64 and keeps its signature/permission policy.
   product). Its extracted App is re-inspected and hashes must match the verified
   build. A local arm64-only package must declare only arm64. CI uploads the
   resulting JSON with the installers.
+- The report records checkout SHA and any tracked build-time diff (excluding
+  submodules). Generated integration changes must be examined explicitly; a
+  successful build alone does not prove a pristine runtime source tree.
 - A separately supplied compile-only Helper can be inspected for both13.0
   architecture slices; this does not register or install a privileged service.
 
