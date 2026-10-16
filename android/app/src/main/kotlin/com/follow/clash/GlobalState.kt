@@ -31,6 +31,25 @@ object GlobalState {
     val runState: MutableLiveData<RunState> = MutableLiveData<RunState>(RunState.STOP)
     var flutterEngine: FlutterEngine? = null
     private var serviceEngine: FlutterEngine? = null
+    var isExitRequested = false
+        private set
+
+    fun beginExit() {
+        isExitRequested = true
+        getCurrentAppPlugin()?.cancelVpnPermissionRequest()
+        getCurrentVPNPlugin()?.beginExit()
+    }
+
+    fun cancelExit(): Boolean {
+        if (getCurrentVPNPlugin()?.cancelExit() == false) return false
+        isExitRequested = false
+        return true
+    }
+
+    fun attachMainEngine(engine: FlutterEngine) {
+        if (serviceEngine == null && VpnPlugin.canDestroyEngine()) isExitRequested = false
+        flutterEngine = engine
+    }
 
     fun getCurrentAppPlugin(): AppPlugin? {
         val currentEngine = if (flutterEngine != null) flutterEngine else serviceEngine
@@ -38,10 +57,16 @@ object GlobalState {
     }
 
     fun syncStatus() {
+        if (isExitRequested) return
+        val plugin = getCurrentVPNPlugin()
         CoroutineScope(Dispatchers.Default).launch {
-            val status = getCurrentVPNPlugin()?.getStatus() ?: false
+            plugin?.getStatus()
             withContext(Dispatchers.Main){
-                runState.value = if (status) RunState.START else RunState.STOP
+                if (!isExitRequested && plugin === getCurrentVPNPlugin() &&
+                    plugin?.canSyncStatus() != false) {
+                    // A Dart/UI status response cannot prove that native VPN resources disappeared.
+                    runState.value = if (plugin?.isNativeRunning() == true) RunState.START else RunState.STOP
+                }
             }
         }
     }
@@ -67,6 +92,7 @@ object GlobalState {
     }
 
     fun handleStart(): Boolean {
+        if (isExitRequested) return false
         if (runState.value == RunState.STOP) {
             runState.value = RunState.PENDING
             runLock.lock()
@@ -95,16 +121,17 @@ object GlobalState {
         }
     }
 
-    fun destroyServiceEngine() {
-        runLock.withLock {
+    fun destroyServiceEngine(): Boolean = runLock.withLock {
+            if (serviceEngine != null && !VpnPlugin.canDestroyEngine()) return false
             serviceEngine?.destroy()
             serviceEngine = null
-        }
+            android.util.Log.i("EntomaVpn", "Service engine destroyed after confirmed VPN stop")
+            true
     }
 
-    fun initServiceEngine() {
-        if (serviceEngine != null) return
-        destroyServiceEngine()
+    fun initServiceEngine(): Boolean {
+        if (isExitRequested) return false
+        if (serviceEngine != null) return true
         runLock.withLock {
             serviceEngine = FlutterEngine(FlClashApplication.getAppContext())
             serviceEngine?.plugins?.add(VpnPlugin)
@@ -119,6 +146,7 @@ object GlobalState {
                 if (flutterEngine == null) listOf("quick") else null
             )
         }
+        return true
     }
 }
 

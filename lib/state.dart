@@ -127,6 +127,9 @@ class GlobalState {
   }
 
   handleStart([UpdateTasks? tasks]) async {
+    if (!isService && isInit && appController.isClosing) {
+      throw StateError('应用正在退出');
+    }
     if (!await clashCore.startListener()) throw StateError('代理监听启动失败，请检查端口或配置');
     try {
       final started = await service?.startVpn();
@@ -145,9 +148,19 @@ class GlobalState {
   }
 
   Future handleStop() async {
+    // Keep listeners and the UI recoverable if native VPN cleanup fails.
+    final nativeService = service;
+    if (nativeService != null) {
+      if (await nativeService.stopVpn() != true) {
+        throw StateError('VPN 尚未停止');
+      }
+      if (!await clashCore.stopListener()) {
+        throw StateError('代理监听尚未停止');
+      }
+    } else {
+      await clashCore.stopListener();
+    }
     startTime = null;
-    await clashCore.stopListener();
-    await service?.stopVpn();
     stopUpdateTasks();
   }
 

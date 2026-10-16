@@ -91,6 +91,7 @@ double getWidgetHeight(num lines) {
 const maxLength = 150;
 
 final mainIsolate = "FlClashMainIsolate";
+const coreServiceIsolate = 'EntomaCoreServiceIsolate';
 
 final serviceIsolate = "FlClashServiceIsolate";
 

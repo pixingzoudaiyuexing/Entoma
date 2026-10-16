@@ -16,6 +16,7 @@ import 'application.dart';
 import 'clash/core.dart';
 import 'clash/lib.dart';
 import 'common/common.dart';
+import 'common/core_service_port.dart';
 import 'models/models.dart';
 import 'diagnostics/android_network_acceptance.dart';
 
@@ -74,18 +75,18 @@ Future<void> _service(List<String> flags) async {
       },
     ),
   );
-  if (!quickStart) {
-    _handleMainIpc(clashLibHandler);
-  } else {
+  final quickReady = Completer<void>();
+  _handleMainIpc(clashLibHandler, quickReady.future);
+  if (quickStart) {
     commonPrint.log("quick start");
-    await ClashCore.initGeo();
-    app?.tip(appLocalizations.startVpn);
-    final homeDirPath = await appPath.homeDirPath;
-    final version = await system.version;
-    final clashConfig = globalState.config.patchClashConfig.copyWith.tun(
-      enable: true,
-    );
     Future(() async {
+      await ClashCore.initGeo();
+      app?.tip(appLocalizations.startVpn);
+      final homeDirPath = await appPath.homeDirPath;
+      final version = await system.version;
+      final clashConfig = globalState.config.patchClashConfig.copyWith.tun(
+        enable: true,
+      );
       final profileId = globalState.config.currentProfileId;
       if (profileId == null) {
         return;
@@ -99,30 +100,34 @@ Future<void> _service(List<String> flags) async {
       debugPrint(res);
       if (res.isNotEmpty) {
         await vpn?.stop();
-        exit(0);
+        return;
       }
-      await vpn?.start(clashLibHandler.getAndroidVpnOptions());
-      clashLibHandler.startListener();
+      // Match the UI ordering. The service readiness barrier drains this work
+      // before true exit sends its native stop request.
+      if (!await clashLibHandler.startListener()) return;
+      final started = await vpn?.start(clashLibHandler.getAndroidVpnOptions());
+      if (started != true) await clashLibHandler.stopListener();
+    }).whenComplete(() {
+      if (!quickReady.isCompleted) quickReady.complete();
+    }).catchError((Object error, StackTrace stack) {
+      commonPrint.log('后台连接初始化失败：${error.runtimeType}');
     });
+  } else {
+    quickReady.complete();
   }
 }
 
-_handleMainIpc(ClashLibHandler clashLibHandler) {
+_handleMainIpc(ClashLibHandler clashLibHandler, Future<void> ready) {
+  final binding = CoreServicePort(
+    handleAction: (message) => clashLibHandler.invokeAction(message),
+    waitForReady: () => ready,
+    attachMessagePort: (port) =>
+        clashLibHandler.attachMessagePort(port.nativePort),
+  );
+  IsolateNameServer.removePortNameMapping(coreServiceIsolate);
+  IsolateNameServer.registerPortWithName(binding.sendPort, coreServiceIsolate);
   final sendPort = IsolateNameServer.lookupPortByName(mainIsolate);
-  if (sendPort == null) {
-    return;
-  }
-  final serviceReceiverPort = ReceivePort();
-  serviceReceiverPort.listen((message) async {
-    final res = await clashLibHandler.invokeAction(message);
-    sendPort.send(res);
-  });
-  sendPort.send(serviceReceiverPort.sendPort);
-  final messageReceiverPort = ReceivePort();
-  clashLibHandler.attachMessagePort(messageReceiverPort.sendPort.nativePort);
-  messageReceiverPort.listen((message) {
-    sendPort.send(message);
-  });
+  if (sendPort != null) binding.attach(sendPort);
 }
 
 @immutable

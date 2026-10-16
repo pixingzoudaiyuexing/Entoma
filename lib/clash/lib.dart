@@ -20,9 +20,15 @@ class ClashLib extends ClashHandlerInterface with AndroidClashInterface {
   Completer<bool> _canSendCompleter = Completer();
   SendPort? sendPort;
   final receiverPort = ReceivePort();
+  bool _listening = false;
+  Future<void>? _initializing;
 
   ClashLib._internal() {
-    _initService();
+    _initService().catchError((Object error, StackTrace stack) {
+      if (!_canSendCompleter.isCompleted) {
+        _canSendCompleter.completeError(error, stack);
+      }
+    });
   }
 
   @override
@@ -30,26 +36,44 @@ class ClashLib extends ClashHandlerInterface with AndroidClashInterface {
     return _canSendCompleter.future;
   }
 
-  _initService() async {
-    await service?.destroy();
+  Future<void> waitForServiceReady() async {
+    await invoke<bool>(
+      method: ActionMethod.getIsInit,
+      onTimeout: () => throw StateError('后台启动尚未完成，请重试退出'),
+    );
+  }
+
+  Future<void> _initService() =>
+      _initializing ??= _attachService().whenComplete(() {
+        _initializing = null;
+      });
+
+  Future<void> _attachService() async {
+    // An active service engine owns the VPN. Reattach its private port rather
+    // than destroying it when Android recreates only the foreground Activity.
     _registerMainPort(receiverPort.sendPort);
-    receiverPort.listen((message) {
-      if (message is SendPort) {
-        if (_canSendCompleter.isCompleted) {
-          sendPort = null;
-          _canSendCompleter = Completer();
+    if (!_listening) {
+      _listening = true;
+      receiverPort.listen((message) {
+        if (message is SendPort) {
+          sendPort = message;
+          if (!_canSendCompleter.isCompleted) _canSendCompleter.complete(true);
+        } else {
+          handleResult(
+            ActionResult.fromJson(json.decode(
+              message,
+            )),
+          );
         }
-        sendPort = message;
-        _canSendCompleter.complete(true);
-      } else {
-        handleResult(
-          ActionResult.fromJson(json.decode(
-            message,
-          )),
-        );
-      }
-    });
-    await service?.init();
+      });
+    }
+    if (await service?.init() != true) {
+      throw StateError('后台核心尚未可用');
+    }
+    // A newly created engine sends its initial handshake when it registers.
+    // An already-running quick/background engine accepts this new UI port.
+    IsolateNameServer.lookupPortByName(coreServiceIsolate)
+        ?.send(receiverPort.sendPort);
   }
 
   _registerMainPort(SendPort sendPort) {
@@ -64,20 +88,19 @@ class ClashLib extends ClashHandlerInterface with AndroidClashInterface {
 
   @override
   destroy() async {
-    await service?.destroy();
-    return true;
+    return await service?.destroy() == true;
   }
 
   @override
   reStart() {
-    _initService();
+    return _initService();
   }
 
   @override
   Future<bool> shutdown() async {
-    await super.shutdown();
-    destroy();
-    return true;
+    // The exit transaction destroys the service engine only after native VPN
+    // stop and this core acknowledgement. Do not tear down its reply port here.
+    return await super.shutdown();
   }
 
   @override

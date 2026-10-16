@@ -9,17 +9,23 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.follow.clash.GlobalState
 import com.follow.clash.models.VpnOptions
+import kotlinx.coroutines.CompletableDeferred
 
 
 class FlClashService : Service(), BaseServiceInterface {
+    override val destroyed = CompletableDeferred<Unit>()
+
+    override fun onCreate() {
+        super.onCreate()
+        GlobalState.getCurrentVPNPlugin()?.onServiceCreated(this)
+        if (GlobalState.isExitRequested) stop()
+    }
 
     override fun start(options: VpnOptions) = 0
 
     override fun stop() {
         stopSelf()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        }
+        stopFlClashForeground()
     }
     
     private var cachedBuilder: NotificationCompat.Builder? = null
@@ -33,8 +39,12 @@ class FlClashService : Service(), BaseServiceInterface {
 
     @SuppressLint("ForegroundServiceType")
     override suspend fun startForeground(title: String, content: String) {
+        val builder = notificationBuilder()
+        // Notification text can await Dart; cleanup may finish while that reply is pending.
+        if (destroyed.isCompleted || GlobalState.isExitRequested ||
+            GlobalState.getCurrentVPNPlugin()?.isNativeRunning() != true) return
         startForeground(
-            notificationBuilder()
+            builder
                 .setContentTitle(title)
                 .setContentText(content).build()
         )
@@ -61,7 +71,14 @@ class FlClashService : Service(), BaseServiceInterface {
     }
 
     override fun onDestroy() {
-        stop()
-        super.onDestroy()
+        try {
+            stop()
+            super.onDestroy()
+            destroyed.complete(Unit)
+            GlobalState.getCurrentVPNPlugin()?.onServiceDestroyed(this)
+        } catch (error: Exception) {
+            destroyed.completeExceptionally(error)
+            throw error
+        }
     }
 }

@@ -86,9 +86,7 @@ class ClashCore {
     return await clashInterface.setState(state);
   }
 
-  shutdown() async {
-    await clashInterface.shutdown();
-  }
+  Future<bool> shutdown() => clashInterface.shutdown();
 
   FutureOr<bool> get isInit => clashInterface.isInit;
 

@@ -97,6 +97,7 @@ flutter {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation(project(":core"))
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("com.google.code.gson:gson:2.10.1")

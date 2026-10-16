@@ -23,6 +23,11 @@ data object ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result): Unit = when (call.method) {
+        "beginExit" -> {
+            GlobalState.beginExit()
+            result.success(true)
+        }
+        "cancelExit" -> result.success(GlobalState.cancelExit())
         "acceptanceSnapshot" -> {
             if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) result.success(GlobalState.getCurrentVPNPlugin()?.acceptanceSnapshot())
             else result.notImplemented()
@@ -31,25 +36,27 @@ data object ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             val data = call.argument<String>("data")
             val options = Gson().fromJson(data, VpnOptions::class.java)
             val plugin = GlobalState.getCurrentVPNPlugin()
-            if (plugin == null) result.success(false)
+            if (plugin == null || GlobalState.isExitRequested) result.success(false)
             else { plugin.handleStart(options) { started -> result.success(started) }; Unit }
         }
 
         "stopVpn" -> {
-            GlobalState.getCurrentVPNPlugin()?.handleStop()
-            result.success(true)
+            val plugin = GlobalState.getCurrentVPNPlugin()
+            if (plugin == null) result.success(true)
+            else plugin.handleStop { failure ->
+                if (failure == null) result.success(true)
+                else result.error("vpn_stop_failed", "VPN cleanup did not complete; retry stop", null)
+            }
         }
 
         "init" -> {
             GlobalState.getCurrentAppPlugin()
                 ?.requestNotificationsPermission()
-            GlobalState.initServiceEngine()
-            result.success(true)
+            result.success(GlobalState.initServiceEngine())
         }
 
         "destroy" -> {
-            handleDestroy()
-            result.success(true)
+            result.success(GlobalState.destroyServiceEngine())
         }
 
         else -> {
@@ -57,8 +64,4 @@ data object ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-
-    private fun handleDestroy() {
-        GlobalState.destroyServiceEngine()
-    }
 }

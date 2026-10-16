@@ -16,6 +16,9 @@ import com.follow.clash.GlobalState
 import android.system.Os
 import com.follow.clash.BuildConfig
 import com.follow.clash.RunState
+import com.follow.clash.VpnLifecycleGuard
+import com.follow.clash.VpnStopTransaction
+import com.follow.clash.VpnServiceRegistry
 import com.follow.clash.core.Core
 import com.follow.clash.extensions.awaitResult
 import com.follow.clash.extensions.resolveDns
@@ -31,13 +34,14 @@ import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.concurrent.withLock
 
 data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var flutterMethodChannel: MethodChannel
@@ -49,11 +53,19 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var timerJob: Job? = null
     private var startDeadline: Job? = null
     private var startCompletion: ((Boolean) -> Unit)? = null
-    private var startGeneration = 0
+    private val lifecycle = VpnLifecycleGuard()
+    private var startGeneration = 0L
+    private var stopTransaction: VpnStopTransaction? = null
+    private var stopFailure: String? = null
     private var startPending = false
     private val uidPageNameMap = mutableMapOf<Int, String>()
     private var tunSequence = 0
     private var startedFd: Int? = null
+    private data class OwnedTunFd(val number: Int, val device: Long?, val inode: Long?)
+    private var ownedTunFd: OwnedTunFd? = null
+    private val services = VpnServiceRegistry<BaseServiceInterface>(
+        stop = { it.stop() }, awaitDestroyed = { it.destroyed.await() },
+    )
     private var nativeStarts = 0
     private var nativeStops = 0
     private val protectedSockets = AtomicInteger(0)
@@ -77,7 +89,9 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "vpnHttpProxyPresent" to (httpProxy != null),
             "vpnHttpProxyValid" to (httpProxy?.host == "127.0.0.1" &&
                 httpProxy?.port == options?.port && httpProxy?.pacFileUrl?.toString().isNullOrEmpty()),
-            "serviceIdentity" to flClashService?.let { System.identityHashCode(it) })
+            "serviceIdentity" to flClashService?.let { System.identityHashCode(it) },
+            "nativeLifecycle" to lifecycle.state.name, "exitRequested" to lifecycle.exitRequested,
+            "stopInProgress" to (stopTransaction?.isActive == true), "stopFailure" to stopFailure)
     }
 
     private val connectivity by lazy {
@@ -88,10 +102,11 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-        scope = CoroutineScope(Dispatchers.Default)
-        scope.launch {
-            registerNetworkCallback()
-        }
+        check(lifecycle.canDestroy()) { "Cannot attach an engine with unconfirmed VPN cleanup" }
+        lifecycle.cancelExit()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        stopTransaction = VpnStopTransaction(scope, lifecycle)
+        registerNetworkCallback()
         flutterMethodChannel = MethodChannel(flutterPluginBinding.binaryMessenger, "vpn")
         flutterMethodChannel.setMethodCallHandler(this)
     }
@@ -99,6 +114,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     override fun onDetachedFromEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         unRegisterNetworkCallback()
         flutterMethodChannel.setMethodCallHandler(null)
+        scope.cancel()
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -109,8 +125,10 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
 
             "stop" -> {
-                handleStop()
-                result.success(true)
+                handleStop { failure ->
+                    if (failure == null) result.success(true)
+                    else result.error("vpn_stop_failed", "VPN cleanup did not complete; retry stop", null)
+                }
             }
 
             else -> {
@@ -119,29 +137,66 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
+    fun beginExit() {
+        lifecycle.beginExit()
+        cancelPendingStart()
+    }
+
+    fun cancelExit(): Boolean {
+        if (stopTransaction?.isActive == true) return false
+        return lifecycle.cancelExit()
+    }
+
+    fun isNativeRunning() = lifecycle.state == VpnLifecycleGuard.State.RUNNING
+
+    fun canSyncStatus() = lifecycle.state == VpnLifecycleGuard.State.RUNNING || lifecycle.canDestroy()
+
+    fun onServiceCreated(service: BaseServiceInterface) {
+        val stopping = lifecycle.exitRequested || lifecycle.state == VpnLifecycleGuard.State.STOPPING ||
+            lifecycle.state == VpnLifecycleGuard.State.STOP_FAILED
+        services.add(service, stopping)
+        if (!stopping) flClashService = service
+    }
+
+    fun onServiceDestroyed(service: BaseServiceInterface) {
+        services.remove(service)
+        if (flClashService === service &&
+            (lifecycle.state == VpnLifecycleGuard.State.RUNNING || lifecycle.state == VpnLifecycleGuard.State.STARTING)) {
+            handleStop()
+        }
+    }
+
+    fun canDestroyEngine(): Boolean = lifecycle.canDestroy() &&
+        stopTransaction?.isActive != true && flClashService == null && pendingConnection == null && services.isEmpty
+
     fun handleStart(options: VpnOptions, completion: ((Boolean) -> Unit)? = null): Boolean {
-        if (GlobalState.runState.value == RunState.START && options == this.options) {
+        if (lifecycle.exitRequested || stopTransaction?.isActive == true) {
+            completion?.invoke(false)
+            return false
+        }
+        if (lifecycle.state == VpnLifecycleGuard.State.RUNNING && options == this.options) {
             completion?.invoke(true)
             return true
         }
-        handleStop()
-        val generation = ++startGeneration
-        startPending = true
-        startCompletion = completion
-        startDeadline = CoroutineScope(Dispatchers.Main).launch {
-            delay(30000)
-            if (generation != startGeneration || !startPending) return@launch
-            handleStop()
-            finishStart(false)
-        }
-        onUpdateNetwork();
-        if (options.enable != this.options?.enable) {
-            this.flClashService = null
-        }
-        this.options = options
-        when (options.enable) {
-            true -> handleStartVpn()
-            false -> handleStartService()
+        scope.launch {
+            try {
+                // A failed previous stop must be reconciled before a fresh start.
+                stopVpn()
+                val generation = lifecycle.beginStart()
+                if (generation == null) { completion?.invoke(false); return@launch }
+                startGeneration = generation
+                startPending = true
+                startCompletion = completion
+                this@VpnPlugin.options = options
+                startDeadline = scope.launch {
+                    delay(30000)
+                    if (lifecycle.acceptsStart(generation) && startPending) handleStop()
+                }
+                onUpdateNetwork()
+                if (options.enable) handleStartVpn() else handleStartService()
+            } catch (_: Exception) {
+                completion?.invoke(false)
+            }
         }
         return true
     }
@@ -152,29 +207,32 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         startDeadline = null
         val callback = startCompletion
         startCompletion = null
-        if (callback != null) CoroutineScope(Dispatchers.Main).launch { callback(started) }
+        val generation = startGeneration
+        if (callback != null) CoroutineScope(Dispatchers.Main).launch {
+            // Authorization/Binder success may be queued just before shutdown invalidates its token.
+            callback(started && generation == startGeneration && lifecycle.canDeliverStarted(generation))
+        }
     }
 
     private fun cancelPendingStart() {
         ++startGeneration
         finishStart(false)
-        unbindService()
+        GlobalState.getCurrentAppPlugin()?.cancelVpnPermissionRequest()
     }
 
     private fun unbindService() {
         val previous = pendingConnection
-        pendingConnection = null
         if (previous != null) {
-            try { FlClashApplication.getAppContext().unbindService(previous) } catch (_: Exception) {}
+            FlClashApplication.getAppContext().unbindService(previous)
+            pendingConnection = null
         }
         isBind = false
-        flClashService = null
     }
 
     private fun handleStartVpn() {
         val generation = startGeneration
         GlobalState.getCurrentAppPlugin()?.requestVpnPermission {
-            if (generation == startGeneration && startPending) handleStartService()
+            if (generation == startGeneration && lifecycle.acceptsStart(generation) && startPending) handleStartService()
         }
     }
 
@@ -225,30 +283,23 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private suspend fun startForeground() {
-        GlobalState.runLock.lock()
-        try {
-            if (GlobalState.runState.value != RunState.START) return
-            val data = flutterMethodChannel.awaitResult<String>("getStartForegroundParams")
-            val startForegroundParams = if (data != null) Gson().fromJson(
-                data, StartForegroundParams::class.java
-            ) else StartForegroundParams(
-                title = "", content = ""
-            )
-            if (lastStartForegroundParams != startForegroundParams) {
-                lastStartForegroundParams = startForegroundParams
-                flClashService?.startForeground(
-                    startForegroundParams.title,
-                    startForegroundParams.content,
-                )
-            }
-        } finally {
-            GlobalState.runLock.unlock()
+        if (lifecycle.exitRequested || lifecycle.state != VpnLifecycleGuard.State.RUNNING) return
+        val generation = startGeneration
+        val service = flClashService ?: return
+        val data = flutterMethodChannel.awaitResult<String>("getStartForegroundParams")
+        if (lifecycle.exitRequested || generation != startGeneration || lifecycle.state != VpnLifecycleGuard.State.RUNNING ||
+            service !== flClashService) return
+        val params = if (data != null) Gson().fromJson(data, StartForegroundParams::class.java)
+                     else StartForegroundParams(title = "", content = "")
+        if (lastStartForegroundParams != params) {
+            service.startForeground(params.title, params.content)
+            lastStartForegroundParams = params
         }
     }
 
     private fun startForegroundJob() {
         stopForegroundJob()
-        timerJob = CoroutineScope(Dispatchers.Main).launch {
+        timerJob = scope.launch {
             while (isActive) {
                 startForeground()
                 delay(1000)
@@ -269,33 +320,31 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun handleStartService() {
-        if (!startPending) return
+        val generation = startGeneration
+        if (!startPending || !lifecycle.acceptsStart(generation)) return
         if (flClashService == null) {
             bindService()
             return
         }
-        GlobalState.runLock.withLock {
-            if (GlobalState.runState.value == RunState.START) { finishStart(true); return }
-            try {
-            val fd = flClashService?.start(options!!)
+        try {
+            val fd = flClashService!!.start(options!!)
+            if (options?.enable == true && fd <= 0) throw IllegalStateException("VPN interface unavailable")
+            if (options?.enable == true) {
+                // Observe the already detached FD; never duplicate/adopt/close it from Java.
+                val identity = try { Os.stat("/proc/self/fd/$fd") } catch (_: android.system.ErrnoException) { null }
+                ownedTunFd = OwnedTunFd(fd, identity?.st_dev, identity?.st_ino)
+            }
             if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) { startedFd = fd; tunSequence++ }
-            if (options?.enable == true && (fd == null || fd <= 0)) throw IllegalStateException("VPN interface unavailable")
-            val started = Core.startTun(
-                fd = fd ?: 0,
-                protect = this::protect,
-                resolverProcess = this::resolverProcess,
-            )
+            val started = Core.startTun(fd = fd, protect = this::protect, resolverProcess = this::resolverProcess)
             if (!started) throw IllegalStateException("TUN start failed")
             if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) nativeStarts++
+            check(lifecycle.started(generation)) { "VPN start superseded by shutdown" }
             GlobalState.runState.value = RunState.START
             startForegroundJob()
             finishStart(true)
-            } catch (_: Exception) {
-                flClashService?.stop()
-                Core.stopTun()
-                GlobalState.runState.value = RunState.STOP
-                finishStart(false)
-            }
+        } catch (_: Exception) {
+            // One cleanup path, including partial startup; never report STOP before it finishes.
+            handleStop()
         }
     }
 
@@ -329,29 +378,73 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         return uidPageNameMap[nextUid] ?: ""
     }
 
-    fun handleStop() {
-        val activeService = flClashService
-        cancelPendingStart()
-        if (GlobalState.runState.value == RunState.STOP) { activeService?.stop(); return }
-        GlobalState.runLock.withLock {
-            if (GlobalState.runState.value == RunState.STOP) return
-            GlobalState.runState.value = RunState.STOP
-            activeService?.stop()
-            stopForegroundJob()
-            Core.stopTun()
-            if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) nativeStops++
-            GlobalState.handleTryDestroy()
+    /** All callers join this transaction; a failed stop retains the engine and service identity. */
+    private suspend fun stopVpn() {
+        try {
+            checkNotNull(stopTransaction).stop {
+                cancelPendingStart()
+                stopForegroundJob()
+                if (GlobalState.runState.value != RunState.STOP) GlobalState.runState.value = RunState.PENDING
+                // Go owns the detached TUN FD. A synchronous native return precedes service teardown.
+                withContext(Dispatchers.IO) { Core.stopTun() }
+                verifyTunClosed()
+                android.util.Log.i("EntomaVpn", "Native stop returned; owned TUN absent fd=${ownedTunFd?.number ?: 0}")
+                if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) nativeStops++
+                services.stopAndAwaitDestroyed(this::unbindService)
+                android.util.Log.i("EntomaVpn", "VPN services destroyed and binding released")
+                flClashService = null
+                ownedTunFd = null
+                lastStartForegroundParams = null
+                stopFailure = null
+                GlobalState.runState.value = RunState.STOP
+            }
+        } catch (failure: Exception) {
+            stopFailure = failure.javaClass.simpleName
+            android.util.Log.w("EntomaVpn", "VPN stop incomplete: ${failure.javaClass.simpleName}")
+            // PENDING intentionally preserves an unresolved native state for retry/diagnostics.
+            GlobalState.runState.value = RunState.PENDING
+            throw failure
+        }
+    }
+
+    private fun verifyTunClosed() {
+        val owned = ownedTunFd ?: return
+        val path = "/proc/self/fd/${owned.number}"
+        val link = try { Os.readlink(path) } catch (failure: android.system.ErrnoException) {
+            if (failure.errno == android.system.OsConstants.ENOENT) return
+            throw failure
+        }
+        // A reused numeric FD must never be closed here. A remaining TUN identity is unresolved.
+        if (link.contains("tun")) {
+            val identity = try { Os.stat(path) } catch (failure: android.system.ErrnoException) {
+                if (failure.errno == android.system.OsConstants.ENOENT) return
+                throw failure
+            }
+            check(owned.device != null && owned.inode != null &&
+                (identity.st_dev != owned.device || identity.st_ino != owned.inode)) {
+                "TUN descriptor is still open after native stop"
+            }
+        }
+    }
+
+    fun handleStop(completion: ((Throwable?) -> Unit)? = null) {
+        scope.launch {
+            try { stopVpn(); completion?.invoke(null) }
+            catch (failure: Exception) { completion?.invoke(failure) }
         }
     }
 
     private fun bindService() {
-        unbindService()
+        check(pendingConnection == null)
         val generation = startGeneration
         val expectsVpn = options?.enable == true
         val connection = object : ServiceConnection {
             override fun onServiceConnected(className: ComponentName, binder: IBinder) {
-                if (generation != startGeneration || !startPending || pendingConnection !== this) {
-                    try { FlClashApplication.getAppContext().unbindService(this) } catch (_: Exception) {}
+                if (generation != startGeneration || !lifecycle.acceptsStart(generation) || !startPending || pendingConnection !== this) {
+                    // The stop transaction owns the current binding, including late callbacks.
+                    if (pendingConnection !== this) {
+                        try { FlClashApplication.getAppContext().unbindService(this) } catch (_: IllegalArgumentException) {}
+                    }
                     return
                 }
                 val bound = when (binder) {
@@ -359,7 +452,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     is FlClashService.LocalBinder -> if (!expectsVpn) binder.getService() else null
                     else -> null
                 }
-                if (bound == null) { finishStart(false); unbindService(); return }
+                if (bound == null) { handleStop(); return }
                 isBind = true
                 flClashService = bound
                 handleStartService()
@@ -374,8 +467,8 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val intent = if (expectsVpn) Intent(FlClashApplication.getAppContext(), FlClashVpnService::class.java)
                      else Intent(FlClashApplication.getAppContext(), FlClashService::class.java)
         if (!FlClashApplication.getAppContext().bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
-            finishStart(false)
-            unbindService()
+            pendingConnection = null
+            handleStop()
         }
     }
 }

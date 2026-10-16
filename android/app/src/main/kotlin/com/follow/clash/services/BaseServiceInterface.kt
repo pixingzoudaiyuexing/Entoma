@@ -18,16 +18,29 @@ import com.follow.clash.extensions.getActionPendingIntent
 import com.follow.clash.models.VpnOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 
 interface BaseServiceInterface {
+
+    /** Completed by onDestroy, after stopForeground and framework destruction. */
+    val destroyed: CompletableDeferred<Unit>
 
     fun start(options: VpnOptions): Int
 
     fun stop()
 
     suspend fun startForeground(title: String, content: String)
+}
+
+@Suppress("DEPRECATION")
+fun Service.stopFlClashForeground() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        stopForeground(Service.STOP_FOREGROUND_REMOVE)
+    } else {
+        stopForeground(true)
+    }
 }
 
 fun Service.createFlClashNotificationBuilder(): Deferred<NotificationCompat.Builder> =

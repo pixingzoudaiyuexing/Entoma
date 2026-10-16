@@ -9,6 +9,7 @@ import 'package:fl_clash/clash/clash.dart';
 import 'package:fl_clash/common/archive.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/plugins/app.dart';
+import 'package:fl_clash/plugins/service.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/dialog.dart';
@@ -19,6 +20,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'common/common.dart';
 import 'common/macos_exit.dart';
+import 'common/android_exit.dart';
 import 'models/models.dart';
 import 'views/profiles/override_profile.dart';
 import 'solution/session.dart';
@@ -50,7 +52,51 @@ class AppController {
     savePreferences: () async => await savePreferences(),
     exit: () async => await system.exit(),
   );
-  bool get isClosing => Platform.isMacOS && _macOSExit.isClosing;
+  late final _androidExit = AndroidExitCoordinator(
+    prepareForExit: androidPrepareForExit,
+    waitForOperations: _waitForCoreOperations,
+    savePreferences: () async => await savePreferences(),
+    stopVpn: androidStopVpn,
+    shutdownCore: androidShutdownCore,
+    destroyEngine: androidDestroyEngine,
+    exit: androidFinishExit,
+    cancelExit: androidCancelExit,
+  );
+
+  // Overridable platform/actions also let host tests exercise the actual
+  // controller admission and exit wiring without closing the test process.
+  bool get usesAndroidExit => Platform.isAndroid;
+  bool get _usesCoreTransactions => Platform.isMacOS || usesAndroidExit;
+  bool get isClosing => usesAndroidExit
+      ? _androidExit.isClosing
+      : Platform.isMacOS && _macOSExit.isClosing;
+
+  Future<void> androidPrepareForExit() async {
+    if (await service?.beginExit() != true) {
+      throw StateError('无法阻止新的 VPN 启动');
+    }
+    // The retained quick-start isolate owns configuration/listener work too.
+    // Its IPC readiness barrier must settle before the native stop snapshot.
+    await clashLib?.waitForServiceReady();
+  }
+
+  Future<bool> androidStopVpn() async {
+    if (await service?.stopVpn() != true) return false;
+    globalState.startTime = null;
+    globalState.stopUpdateTasks();
+    _ref.read(runTimeProvider.notifier).value = null;
+    return true;
+  }
+
+  Future<bool> androidShutdownCore() => clashCore.shutdown();
+  Future<bool> androidDestroyEngine() async => await service?.destroy() == true;
+  Future<void> androidFinishExit() async => await system.exit();
+  Future<void> androidCancelExit() async {
+    if (await service?.cancelExit() != true) {
+      throw StateError('VPN 仍在停止，请重试退出');
+    }
+  }
+
   final Object _profileTransactionKey = Object();
   bool get _profileTransactionActive =>
       (Zone.current[_profileTransactionKey] as _ProfileTransactionLease?)
@@ -62,7 +108,7 @@ class AppController {
   // delayed callbacks lose permission as soon as the transaction completes.
   Future<T> runProfileTransaction<T>(Future<T> Function() action) {
     if (isClosing) return Future.error(_ConfigurationClosing());
-    if (!Platform.isMacOS) return Future<T>.sync(action);
+    if (!_usesCoreTransactions) return Future<T>.sync(action);
     final lease = _ProfileTransactionLease();
     final operation = runZoned(() async {
       try {
@@ -81,8 +127,8 @@ class AppController {
   }
 
   Future<void> _coreOperation(Future<void> Function() action) {
-    if (!Platform.isMacOS) return action();
     if (isClosing) return Future.value();
+    if (!_usesCoreTransactions) return action();
     final operation = Future<void>.sync(action);
     _coreOperations.add(operation);
     operation.then<void>(
@@ -563,7 +609,8 @@ class AppController {
 
   savePreferences() async {
     commonPrint.log("save preferences");
-    await preferences.saveConfig(globalState.config);
+    final saved = await preferences.saveConfig(globalState.config);
+    if (usesAndroidExit && !saved) throw StateError('无法保存本地设置，请重试退出');
   }
 
   changeProxy({
@@ -605,6 +652,12 @@ class AppController {
   }
 
   handleExit() async {
+    if (usesAndroidExit) {
+      if (!await _androidExit.requestExit()) {
+        globalState.showNotifier('退出尚未完成：VPN 或核心尚未安全停止，请重试退出。');
+      }
+      return;
+    }
     if (Platform.isMacOS) {
       if (!await _macOSExit.requestExit()) {
         globalState.showNotifier('退出尚未完成：系统网络设置或核心尚未安全恢复，请重试退出。');
