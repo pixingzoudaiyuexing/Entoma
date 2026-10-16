@@ -49,7 +49,7 @@ class AppController {
         _manualCoreUse ||
         _ref.read(realTunEnableProvider) ||
         _ref.read(patchClashConfigProvider).tun.enable,
-    waitForCoreIdle: _waitForCoreOperations,
+    waitForCoreIdle: _waitForListenerStops,
     startCore: () async => await _updateCoreStatus(true),
     stopCore: () async => await _updateCoreStatus(false),
     waitForListener: waitForMixedProxy,
@@ -62,6 +62,8 @@ class AppController {
   bool _connecting = false;
   Future<void> _configurationQueue = Future.value();
   final Set<Future<void>> _coreOperations = {};
+  final Set<Future<void>> _listenerStops = {};
+  Object? _listenerStopFailure;
   late final _macOSExit = MacOSExitCoordinator(
     prepareForExit: () async {
       desktopProxy.seal();
@@ -203,6 +205,21 @@ class AppController {
     }
   }
 
+  Future<void> _waitForListenerStops() async {
+    // Profile transactions can themselves await a proxy-off rollback. They
+    // belong to exit drain, never this connect barrier (which would self-wait).
+    while (_listenerStops.isNotEmpty) {
+      await Future.wait([
+        for (final stop in _listenerStops.toList()) stop.catchError((_) {}),
+      ]);
+    }
+    // A timed-out stop may still execute natively after returning false. Do not
+    // reuse that listener until an explicit stop retry is acknowledged.
+    if (_listenerStopFailure != null) {
+      throw StateError('核心停止尚未确认，请重试停止后再连接');
+    }
+  }
+
   Future<T> _configure<T>(Future<T> Function() action) {
     final operation = _configurationQueue.catchError((_) {}).then((_) {
       if (_configurationClosing) throw _ConfigurationClosing();
@@ -324,14 +341,26 @@ class AppController {
         if (!isClosing) addCheckIpNumDebounce();
       });
     } else {
-      await _coreOperation(() async {
-        await globalState.handleStop();
+      final stopping = _coreOperation(() async {
+        try {
+          await globalState.handleStop();
+        } catch (error) {
+          _listenerStopFailure = error;
+          rethrow;
+        }
+        _listenerStopFailure = null;
         await clashCore.resetTraffic();
         _ref.read(trafficsProvider.notifier).clear();
         _ref.read(totalTrafficProvider.notifier).value = Traffic();
         _ref.read(runTimeProvider.notifier).value = null;
         addCheckIpNumDebounce();
       });
+      _listenerStops.add(stopping);
+      stopping.then<void>((_) => _listenerStops.remove(stopping),
+          onError: (Object _, StackTrace __) {
+        _listenerStops.remove(stopping);
+      });
+      await stopping;
     }
   }
 
