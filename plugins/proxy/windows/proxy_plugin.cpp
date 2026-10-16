@@ -117,10 +117,10 @@ bool parseRequest(const flutter::EncodableValue* arguments,
   const auto bypass = map->find(flutter::EncodableValue("bypassDomain"));
   if (port == map->end() || bypass == map->end()) return false;
   std::int64_t number;
-  if (const auto* value = std::get_if<std::int32_t>(&port->second)) {
-    number = *value;
-  } else if (const auto* value = std::get_if<std::int64_t>(&port->second)) {
-    number = *value;
+  if (const auto* port32 = std::get_if<std::int32_t>(&port->second)) {
+    number = *port32;
+  } else if (const auto* port64 = std::get_if<std::int64_t>(&port->second)) {
+    number = *port64;
   } else {
     return false;
   }
