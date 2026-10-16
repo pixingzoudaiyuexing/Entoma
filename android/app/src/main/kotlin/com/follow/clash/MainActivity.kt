@@ -16,6 +16,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        android.util.Log.i("EntomaVpn", "Main Activity destroyed finishing=$isFinishing")
         if (GlobalState.flutterEngine === flutterEngine) GlobalState.flutterEngine = null
         super.onDestroy()
     }

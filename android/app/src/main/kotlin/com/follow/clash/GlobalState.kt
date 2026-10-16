@@ -125,6 +125,7 @@ object GlobalState {
             if (serviceEngine != null && !VpnPlugin.canDestroyEngine()) return false
             serviceEngine?.destroy()
             serviceEngine = null
+            android.util.Log.i("EntomaVpn", "Service engine destroyed after confirmed VPN stop")
             true
     }
 

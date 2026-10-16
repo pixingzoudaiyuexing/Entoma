@@ -388,8 +388,10 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 // Go owns the detached TUN FD. A synchronous native return precedes service teardown.
                 withContext(Dispatchers.IO) { Core.stopTun() }
                 verifyTunClosed()
+                android.util.Log.i("EntomaVpn", "Native stop returned; owned TUN absent fd=${ownedTunFd?.number ?: 0}")
                 if (BuildConfig.ENTOMA_NETWORK_ACCEPTANCE) nativeStops++
                 services.stopAndAwaitDestroyed(this::unbindService)
+                android.util.Log.i("EntomaVpn", "VPN services destroyed and binding released")
                 flClashService = null
                 ownedTunFd = null
                 lastStartForegroundParams = null
@@ -398,6 +400,7 @@ data object VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
         } catch (failure: Exception) {
             stopFailure = failure.javaClass.simpleName
+            android.util.Log.w("EntomaVpn", "VPN stop incomplete: ${failure.javaClass.simpleName}")
             // PENDING intentionally preserves an unresolved native state for retry/diagnostics.
             GlobalState.runState.value = RunState.PENDING
             throw failure
