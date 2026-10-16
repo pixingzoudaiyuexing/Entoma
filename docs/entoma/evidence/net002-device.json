@@ -1,0 +1,291 @@
+{
+  "base": "83214dd041f5f377d6577319cd290b9bc3a2c67c",
+  "runtimeCandidate": "5dbd1b774ed8f4c11e622ef3e394294ca25d5d1b",
+  "apkSha256": "3de5792cf318d9f7d9654497671ecd008fd44b078228ab1088512fe5b347cba9",
+  "device": "Huawei CDY-AN90 / Android 10 API29 / arm64-v8a",
+  "upgrade": {
+    "preservedPackage": "com.entoma.client",
+    "versionCodeBefore": 16,
+    "versionCodeAfter": 17,
+    "certificateMatches": true,
+    "uninstall": false,
+    "clearData": false
+  },
+  "scenarios": {
+    "baselineTrueExit": "FAIL reproduced ports closed but VPN service/FGS/tun0 remain",
+    "candidateTrueExit": "PASS two observed cycles; native TUN readback/services/engine/Activity order logged",
+    "coldStart": "PASS independent process started after confirmed cleanup, login/cache retained and reconnected",
+    "minimizeBack": "PASS services/FGS/tun0/listener stay; background HTTPS200",
+    "explicitDisconnect": "PASS service/FGS/tun0/listener clean, UI retained",
+    "reopenAfterSecondExit": "PASS no force-stop/data clear; reconnect and HTTPS200",
+    "nodeSwitch": "PASS actual UI test to Singapore and back; normal connection retained"
+  },
+  "snapshots": [
+    {
+      "case": "baseline-connected",
+      "vpnServicePresent": true,
+      "foregroundServicePresent": true,
+      "tun0Present": true,
+      "ports": [
+        {
+          "port": 7890,
+          "status": "LISTENING"
+        },
+        {
+          "port": 17890,
+          "status": "REFUSED"
+        }
+      ],
+      "lifecycleLogLines": []
+    },
+    {
+      "case": "baseline-after-true-exit",
+      "vpnServicePresent": true,
+      "foregroundServicePresent": true,
+      "tun0Present": true,
+      "ports": [
+        {
+          "port": 7890,
+          "status": "REFUSED"
+        },
+        {
+          "port": 17890,
+          "status": "REFUSED"
+        }
+      ],
+      "lifecycleLogLines": []
+    },
+    {
+      "case": "baseline-explicit-disconnect",
+      "vpnServicePresent": false,
+      "foregroundServicePresent": false,
+      "tun0Present": false,
+      "ports": [
+        {
+          "port": 7890,
+          "status": "REFUSED"
+        },
+        {
+          "port": 17890,
+          "status": "REFUSED"
+        }
+      ],
+      "lifecycleLogLines": []
+    },
+    {
+      "case": "candidate-connected-1",
+      "vpnServicePresent": true,
+      "foregroundServicePresent": true,
+      "tun0Present": true,
+      "ports": [
+        {
+          "port": 7890,
+          "status": "LISTENING"
+        },
+        {
+          "port": 17890,
+          "status": "REFUSED"
+        }
+      ],
+      "lifecycleLogLines": [
+        "10-16 14:14:53.810 18458 18458 I EntomaVpn: Native stop returned; owned TUN absent fd=0",
+        "10-16 14:14:53.810 18458 18458 I EntomaVpn: VPN services destroyed and binding released",
+        "10-16 14:15:43.313 18458 18458 I EntomaVpn: Native stop returned; owned TUN absent fd=0",
+        "10-16 14:15:43.313 18458 18458 I EntomaVpn: VPN services destroyed and binding released"
+      ]
+    },
+    {
+      "case": "candidate-settled-after-true-exit-1",
+      "vpnServicePresent": false,
+      "foregroundServicePresent": false,
+      "tun0Present": false,
+      "ports": [
+        {
+          "port": 7890,
+          "status": "REFUSED"
+        },
+        {
+          "port": 17890,
+          "status": "REFUSED"
+        }
+      ],
+      "lifecycleLogLines": [
+        "10-16 14:21:18.721 18458 18458 I EntomaVpn: Native stop returned; owned TUN absent fd=165",
+        "10-16 14:21:18.750 18458 18458 I EntomaVpn: VPN services destroyed and binding released",
+        "10-16 14:21:18.777 18458 18458 I EntomaVpn: Service engine destroyed after confirmed VPN stop",
+        "10-16 14:21:19.837 18458 18458 I EntomaVpn: Main Activity destroyed finishing=true"
+      ]
+    },
+    {
+      "case": "candidate-minimized",
+      "vpnServicePresent": true,
+      "foregroundServicePresent": true,
+      "tun0Present": true,
+      "ports": [
+        {
+          "port": 7890,
+          "status": "LISTENING"
+        },
+        {
+          "port": 17890,
+          "status": "REFUSED"
+        }
+      ],
+      "lifecycleLogLines": []
+    },
+    {
+      "case": "candidate-explicit-disconnect",
+      "vpnServicePresent": false,
+      "foregroundServicePresent": false,
+      "tun0Present": false,
+      "ports": [
+        {
+          "port": 7890,
+          "status": "REFUSED"
+        },
+        {
+          "port": 17890,
+          "status": "REFUSED"
+        }
+      ],
+      "lifecycleLogLines": [
+        "10-16 14:25:31.813 21992 21992 I EntomaVpn: Native stop returned; owned TUN absent fd=174",
+        "10-16 14:25:31.840 21992 21992 I EntomaVpn: VPN services destroyed and binding released"
+      ]
+    },
+    {
+      "case": "candidate-connected-2",
+      "vpnServicePresent": true,
+      "foregroundServicePresent": true,
+      "tun0Present": true,
+      "ports": [
+        {
+          "port": 7890,
+          "status": "LISTENING"
+        },
+        {
+          "port": 17890,
+          "status": "REFUSED"
+        }
+      ],
+      "lifecycleLogLines": [
+        "10-16 14:25:31.813 21992 21992 I EntomaVpn: Native stop returned; owned TUN absent fd=174",
+        "10-16 14:25:31.840 21992 21992 I EntomaVpn: VPN services destroyed and binding released",
+        "10-16 14:27:05.004 21992 21992 I EntomaVpn: Native stop returned; owned TUN absent fd=0",
+        "10-16 14:27:05.004 21992 21992 I EntomaVpn: VPN services destroyed and binding released"
+      ]
+    },
+    {
+      "case": "candidate-settled-after-true-exit-2",
+      "vpnServicePresent": false,
+      "foregroundServicePresent": false,
+      "tun0Present": false,
+      "ports": [
+        {
+          "port": 7890,
+          "status": "REFUSED"
+        },
+        {
+          "port": 17890,
+          "status": "REFUSED"
+        }
+      ],
+      "lifecycleLogLines": [
+        "10-16 14:28:44.732 21992 21992 I EntomaVpn: Native stop returned; owned TUN absent fd=165",
+        "10-16 14:28:44.752 21992 21992 I EntomaVpn: VPN services destroyed and binding released",
+        "10-16 14:28:44.787 21992 21992 I EntomaVpn: Service engine destroyed after confirmed VPN stop",
+        "10-16 14:28:45.815 21992 21992 I EntomaVpn: Main Activity destroyed finishing=true"
+      ]
+    },
+    {
+      "case": "candidate-final-disconnected",
+      "vpnServicePresent": false,
+      "foregroundServicePresent": false,
+      "tun0Present": false,
+      "ports": [
+        {
+          "port": 7890,
+          "status": "REFUSED"
+        },
+        {
+          "port": 17890,
+          "status": "REFUSED"
+        }
+      ]
+    }
+  ],
+  "https": [
+    {
+      "case": "baseline-https",
+      "exitCode": 0,
+      "httpStatus": 200,
+      "explicitHttpProxy": false,
+      "defaultTLSValidation": true
+    },
+    {
+      "case": "candidate-https-1",
+      "exitCode": 0,
+      "httpStatus": 200,
+      "explicitHttpProxy": false,
+      "defaultTLSValidation": true
+    },
+    {
+      "case": "candidate-https-chain-final",
+      "exitCode": 0,
+      "httpStatus": 200,
+      "explicitHttpProxy": false,
+      "defaultTLSValidation": true
+    },
+    {
+      "case": "background-https",
+      "exitCode": 0,
+      "httpStatus": 200,
+      "explicitHttpProxy": false,
+      "defaultTLSValidation": true
+    },
+    {
+      "case": "candidate-https-2",
+      "exitCode": 0,
+      "httpStatus": 200,
+      "explicitHttpProxy": false,
+      "defaultTLSValidation": true
+    },
+    {
+      "case": "candidate-https-3",
+      "exitCode": 0,
+      "httpStatus": 200,
+      "explicitHttpProxy": false,
+      "defaultTLSValidation": true
+    }
+  ],
+  "proxyEvidence": {
+    "coreRouteLog": "[TCP] 172.19.0.1:33840 --> www.cloudflare.com:443 using GLOBAL",
+    "selection": "test in GLOBAL, observed at connected dashboard and explicit selection",
+    "rawRoute": "device/candidate-route-ui.json",
+    "rawSelection": "device/candidate-connected-ui.json",
+    "inference": "Route through GLOBAL with current selection test and explicitProxy=false HTTPS success supports selected-node TUN forwarding; no DIRECT route recorded for this request. No arbitrary encrypted subscription or connection body collected."
+  },
+  "limits": [
+    "No real payment or account/Journal mutation",
+    "External app-process fd listing denied; private production ownedFD readback plus independent OS snapshots instead",
+    "Late authorization/Binder/error/timeout are automated controlled tests, not claimed as all physically injected on Huawei",
+    "Exact pending bind before onCreate system queue ordering remains UNKNOWN",
+    "No new Windows/macOS physical acceptance"
+  ],
+  "finalState": {
+    "disconnected": true,
+    "testSettingsRestored": {
+      "minimizeOnExit": true,
+      "openLogs": false,
+      "logLevel": "error",
+      "mode": "rule",
+      "globalSelection": "DIRECT"
+    },
+    "probeFilesRemoved": true,
+    "ownAwakeSessionEnded": true,
+    "accountOrJournalCleared": false
+  },
+  "formalIndependentDeltaReview": "REQUIRED / PENDING",
+  "rawEvidenceRoot": "dist/net002-20261016",
+  "rawEvidenceAvailability": "local retained files; no raw account/business payloads included in repository"
+}
