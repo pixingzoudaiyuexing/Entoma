@@ -13,6 +13,12 @@ from pathlib import Path
 
 
 MINIMUM = (13, 0, 0)
+MACHO_MAGICS = {
+    bytes.fromhex(value) for value in (
+        "feedface", "cefaedfe", "feedfacf", "cffaedfe",
+        "cafebabe", "bebafeca", "cafebabf", "bfbafeca",
+    )
+}
 BINARIES = {
     "gui": ("MacOS/Entoma", True),
     "proxy": ("Frameworks/proxy.framework/Versions/A/proxy", True),
@@ -67,7 +73,20 @@ def app(path):
     gui_architectures = set(binaries["gui"]["slices"])
     for name, item in binaries.items():
         require(gui_architectures <= set(item["slices"]), f"Missing app architecture in {name}")
-    return {"minimum": info["LSMinimumSystemVersion"], "binaries": binaries}
+    embedded = {}
+    for file in sorted((path / "Contents").rglob("*")):
+        if file.is_symlink() or not file.is_file():
+            continue
+        with file.open("rb") as source:
+            magic = source.read(4)
+        if magic not in MACHO_MAGICS:
+            continue
+        item = binary(file, False)
+        require(gui_architectures <= set(item["slices"]),
+                f"Missing app architecture in embedded binary: {file}")
+        embedded[str(file.relative_to(path))] = item
+    return {"minimum": info["LSMinimumSystemVersion"], "binaries": binaries,
+            "embeddedMachO": embedded}
 
 
 def main():
@@ -88,8 +107,10 @@ def main():
                 and ranges[0].get("before") is None,
                 "Installer must contain one open-ended macOS13.0 minimum range")
         options = distribution.find("options")
-        require(options is not None and set(options.get("hostArchitectures", "").split(","))
-                == {"arm64", "x86_64"}, "Unexpected installer architectures")
+        installer_architectures = (set(options.get("hostArchitectures", "").split(","))
+                                  if options is not None else set())
+        require(installer_architectures == set(built["binaries"]["gui"]["slices"]),
+                "Installer architectures must exactly match the actual GUI payload")
         payloads = list(expanded.rglob("Entoma.app"))
         require(len(payloads) == 1, "Expected one actual Entoma app payload")
         payload = app(payloads[0])
@@ -101,6 +122,7 @@ def main():
                 check=False).returncode != 0,
             "requiredMacOS": "13.0", "app": built,
             "installer": {"minimum": ranges[0].get("min"),
+                          "architectures": sorted(installer_architectures),
                           "sha256": hashlib.sha256(args.pkg.read_bytes()).hexdigest(),
                           "payloadMatchesBuiltApp": True},
             "verification": "static artifact inspection; no payload install or execution",

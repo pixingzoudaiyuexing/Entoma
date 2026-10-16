@@ -30,9 +30,13 @@ targets13.0 for arm64 and x86_64 and keeps its signature/permission policy.
   and cover the GUI's architectures. A toolchain runtime supporting older systems
   does not lower the containing application's13.0 requirement. No vendor binary
   or Go linker is patched to manufacture a matching version string.
+- Every embedded Mach-O is scanned for a minimum no newer than13.0 and coverage
+  of the GUI's actual architectures, including other plugin/vendor frameworks.
 - The product PKG Distribution must contain one open-ended13.0 OS range and
-  arm64/x86_64 support. Its extracted App is re-inspected and hashes must match
-  the verified build. CI uploads the resulting JSON with the installers.
+  exactly the GUI's actual architectures (arm64/x86_64 for the universal CI
+  product). Its extracted App is re-inspected and hashes must match the verified
+  build. A local arm64-only package must declare only arm64. CI uploads the
+  resulting JSON with the installers.
 - A separately supplied compile-only Helper can be inspected for both13.0
   architecture slices; this does not register or install a privileged service.
 
