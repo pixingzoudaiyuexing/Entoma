@@ -149,7 +149,7 @@ class DesktopProxyCoordinator extends ChangeNotifier {
 
   Future<void> _restoreAndReleaseCore() async {
     if (await restore() != true) throw StateError('系统代理尚未恢复');
-    if (_needsRestore) {
+    if (_needsRestore || _autoStarted) {
       final config = configuration();
       final actual = await readback(config.port, config.bypass);
       if (!actual.available || actual.owned || actual.restorationPending) {

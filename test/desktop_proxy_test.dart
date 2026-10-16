@@ -194,6 +194,21 @@ void main() {
     expect(f.running, false);
   });
 
+  test('external use acquired before apply also prevents canceled core release',
+      () async {
+    final f = ProxyFixture()..listenerHold = Completer<void>();
+    final on = f.coordinator.request(true);
+    await f.listenerEntered.future;
+    f.externallyUsesListener = true;
+    final off = f.coordinator.request(false);
+    f.listenerHold!.complete();
+    await Future.wait([on, off]);
+    expect(f.writes, 0);
+    expect(f.stops, 0);
+    expect(f.running, true);
+    expect(f.coordinator.phase, DesktopProxyPhase.failed);
+  });
+
   test('unavailable backend fails before core startup without fake rollback',
       () async {
     final f = ProxyFixture()
