@@ -199,7 +199,7 @@ class _ListenerCore implements ClashHandlerInterface {
 class _NativeReadback extends ProxyPlatform {
   int writes = 0;
   bool applied = false;
-  final read = Completer<void>();
+  var read = Completer<void>();
   @override
   Future<bool?> startProxy(int port, List<String> bypassDomain) async {
     writes++;
@@ -512,12 +512,35 @@ void main() {
         final file = File(await appPath.getProfilePath(profile.id));
         await file.parent.create(recursive: true);
         await file.writeAsString('fixture profile');
+        final transactionEntered = Completer<void>();
+        final rollback = Completer<void>();
+        final transaction = controller.runProfileTransaction(() async {
+          transactionEntered.complete();
+          await rollback.future;
+          // Subscription failure/LKG rollback uses this production seam.
+          await controller.updateStatus(false);
+        });
+        pending.add(transaction);
+        await transactionEntered.future;
+        final interruptedConnect = controller.setSystemProxyEnabled(true);
+        pending.add(interruptedConnect);
+        await native.read.future.timeout(const Duration(seconds: 2));
+        rollback.complete();
+        await Future.wait([transaction, interruptedConnect])
+            .timeout(const Duration(seconds: 3));
+        expect(controller.desktopProxy.phase, DesktopProxyPhase.disconnected);
+        expect(native.writes, 0);
+        container
+            .read(networkSettingProvider.notifier)
+            .updateState((state) => state.copyWith(systemProxy: false));
+        final previousStarts = core.starts;
         await controller.updateStatus(true).timeout(const Duration(seconds: 3));
         await core.trafficRead.future.timeout(const Duration(seconds: 2));
-        expect(core.starts, 1);
+        expect(core.starts, previousStarts + 1);
         expect(native.writes, 0);
         core.stopGate = Completer<void>();
         core.stopEntered = Completer<void>();
+        native.read = Completer<void>();
         final stopping = controller.updateStatus(false);
         pending.add(stopping);
         await core.stopEntered!.future.timeout(const Duration(seconds: 2));
@@ -533,7 +556,7 @@ void main() {
         core.stopGate!.complete();
         await Future.wait([stopping, connecting])
             .timeout(const Duration(seconds: 3));
-        expect(core.starts, 2);
+        expect(core.starts, previousStarts + 2);
         expect(native.writes, 1);
         expect(controller.desktopProxy.phase, DesktopProxyPhase.connected);
         core.stopGate = null;
@@ -543,14 +566,22 @@ void main() {
         expect(controller.desktopProxy.phase, DesktopProxyPhase.failed);
         expect(globalState.startTime, isNotNull);
         expect(core.listener, isNotNull);
+        // Late native execution behind an unconfirmed stop reply.
+        await core.listener!.close();
+        core.listener = null;
+        await controller.setSystemProxyEnabled(true);
+        expect(controller.desktopProxy.phase, DesktopProxyPhase.failed);
+        expect(native.writes, 1,
+            reason: 'an UNKNOWN stop cannot be reused as a connection');
         core.stopResult = true;
-        await controller.retrySystemProxy();
+        await controller.setSystemProxyEnabled(false);
         expect(controller.desktopProxy.phase, DesktopProxyPhase.disconnected);
         expect(core.listener, isNull);
         expect(globalState.startTime, isNull);
       } finally {
         if (core.stopGate?.isCompleted == false) core.stopGate!.complete();
         await Future.wait(pending)
+            .timeout(const Duration(seconds: 3))
             .then<void>((_) {}, onError: (Object _, StackTrace __) {});
         await core.listener?.close();
         globalState.stopUpdateTasks();
