@@ -12,6 +12,7 @@ import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/manager/proxy_manager.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/providers/desktop_proxy.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/config/network.dart';
 import 'package:fl_clash/views/dashboard/widgets/quick_options.dart';
@@ -122,10 +123,12 @@ class _InitializationController extends AppController {
   _InitializationController(super.context, super.ref, this.actions);
   final _ProxyActions actions;
   Future<void> Function()? preparing;
+  bool useProductionCoordinator = false;
   @override
   bool get usesDesktopProxy => true;
   @override
-  DesktopProxyCoordinator get desktopProxy => actions.coordinator;
+  DesktopProxyCoordinator get desktopProxy =>
+      useProductionCoordinator ? super.desktopProxy : actions.coordinator;
   @override
   Future<void> prepareCore() async => await preparing?.call();
   @override
@@ -144,16 +147,37 @@ class _ListenerCore implements ClashHandlerInterface {
   _ListenerCore(this.actions);
   final _ProxyActions actions;
   int starts = 0;
+  bool stopResult = true;
+  bool realListener = false;
+  void Function(int)? onPort;
+  ServerSocket? listener;
+  Completer<void>? stopGate;
+  Completer<void>? stopEntered;
   final trafficRead = Completer<void>();
   @override
   Future<bool> startListener() async {
     starts++;
+    if (realListener) {
+      listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      onPort!(listener!.port);
+      listener!.listen((socket) async {
+        await socket.expand((bytes) => bytes).take(3).toList();
+        socket.add([5, 0]);
+        await socket.flush();
+        socket.destroy();
+      });
+    }
     actions.running = true;
     return true;
   }
 
   @override
   Future<bool> stopListener() async {
+    if (stopEntered?.isCompleted == false) stopEntered!.complete();
+    await stopGate?.future;
+    if (!stopResult) return false;
+    await listener?.close();
+    listener = null;
     actions.running = false;
     return true;
   }
@@ -170,6 +194,35 @@ class _ListenerCore implements ClashHandlerInterface {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _NativeReadback extends ProxyPlatform {
+  int writes = 0;
+  bool applied = false;
+  final read = Completer<void>();
+  @override
+  Future<bool?> startProxy(int port, List<String> bypassDomain) async {
+    writes++;
+    applied = true;
+    return true;
+  }
+
+  @override
+  Future<bool?> stopProxy() async {
+    applied = false;
+    return true;
+  }
+
+  @override
+  Future<ProxyStatus> getProxyStatus(
+      int port, List<String> bypassDomain) async {
+    if (!read.isCompleted) read.complete();
+    return ProxyStatus(
+        available: true,
+        matches: applied,
+        owned: applied,
+        restorationPending: false);
+  }
 }
 
 Future<_Controller> _mount(WidgetTester tester, _ProxyActions actions,
@@ -334,6 +387,13 @@ void main() {
                       : DesktopProxyPhase.disconnected);
               expect(container.read(initProvider), true);
               if (autoRun && mode && earlyIntent == null) {
+                core.stopResult = false;
+                await expectLater(
+                    controller.updateStatus(false), throwsStateError);
+                expect(globalState.startTime, isNotNull,
+                    reason: 'a false native stop is an unconfirmed stop');
+                expect(actions.running, true);
+                core.stopResult = true;
                 await controller.updateStatus(false);
                 expect(
                     actions.coordinator.phase, DesktopProxyPhase.disconnected);
@@ -378,6 +438,131 @@ void main() {
     expect(container.read(trayStateProvider).systemProxy, false);
     expect(find.text('未连接'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
+  }, skip: !Platform.isMacOS && !Platform.isWindows);
+
+  testWidgets('first-frame controller replacement rebinds UI and tray owner',
+      (tester) async {
+    final initial = _ProxyActions();
+    final navigatorBound = _ProxyActions();
+    var scheduled = false;
+    final controller = await _mount(tester, initial,
+        body: Consumer(builder: (context, ref, _) {
+      // TrayManager subscribes during the first build, before Application
+      // substitutes its navigator-bound controller in a post-frame callback.
+      ref.watch(trayStateProvider);
+      if (!scheduled) {
+        scheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          globalState.appController = _Controller(context, ref)
+            ..fixture = navigatorBound.coordinator;
+        });
+      }
+      return const SizedBox(width: 600, child: SystemProxyButton());
+    }));
+    await tester.pump();
+    final container = ProviderScope.containerOf(controller.context);
+    expect(container.read(desktopProxyCoordinatorProvider),
+        same(navigatorBound.coordinator));
+    await globalState.appController.setSystemProxyEnabled(true);
+    await tester.pump();
+    expect(find.text('已连接'), findsOneWidget);
+    expect(tester.widget<Switch>(find.byType(Switch)).value, true);
+    expect(container.read(trayStateProvider).systemProxy, true);
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(navigatorBound.coordinator.phase, DesktopProxyPhase.disconnected);
+    expect(initial.starts, 0);
+    expect(navigatorBound.starts, 1);
+    expect(navigatorBound.restores, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, skip: !Platform.isMacOS && !Platform.isWindows);
+
+  testWidgets(
+      'one-click waits for independent core stop before reusing listener',
+      (tester) async {
+    final actions = _ProxyActions();
+    final host = await _mount(tester, actions);
+    final container = ProviderScope.containerOf(host.context);
+    await tester.runAsync(() async {
+      final dir = await Directory.systemTemp.createTemp('entoma-stop-race-');
+      final oldPaths = PathProviderPlatform.instance;
+      PathProviderPlatform.instance = FixturePaths(dir.path);
+      final oldData = appPath.dataDir;
+      await oldData.future.timeout(const Duration(seconds: 2));
+      appPath.dataDir = Completer<Directory>()..complete(dir);
+      final oldCore = clashCore.clashInterface;
+      final oldNative = ProxyPlatform.instance;
+      final core = _ListenerCore(actions)
+        ..realListener = true
+        ..onPort = (port) =>
+            container.read(acceptedMixedPortProvider.notifier).state = port;
+      final native = _NativeReadback();
+      final pending = <Future<void>>[];
+      ProxyPlatform.instance = native;
+      clashCore.clashInterface = core;
+      final controller =
+          _InitializationController(host.context, host.fixtureRef, actions)
+            ..useProductionCoordinator = true;
+      globalState.appController = controller;
+      try {
+        final profile = Profile(
+            id: 'stop-race', autoUpdateDuration: const Duration(days: 1));
+        controller.setProfile(profile);
+        container.read(currentProfileIdProvider.notifier).value = profile.id;
+        final file = File(await appPath.getProfilePath(profile.id));
+        await file.parent.create(recursive: true);
+        await file.writeAsString('fixture profile');
+        await controller.updateStatus(true).timeout(const Duration(seconds: 3));
+        await core.trafficRead.future.timeout(const Duration(seconds: 2));
+        expect(core.starts, 1);
+        expect(native.writes, 0);
+        core.stopGate = Completer<void>();
+        core.stopEntered = Completer<void>();
+        final stopping = controller.updateStatus(false);
+        pending.add(stopping);
+        await core.stopEntered!.future.timeout(const Duration(seconds: 2));
+        final connecting = controller.setSystemProxyEnabled(true);
+        pending.add(connecting);
+        await native.read.future.timeout(const Duration(seconds: 2));
+        await Future<void>.delayed(
+            Duration.zero); // Drain ready microtasks only.
+        expect(native.writes, 0,
+            reason:
+                'a listener with pending stop acknowledgement is not reusable');
+        expect(controller.desktopProxy.phase, DesktopProxyPhase.connecting);
+        core.stopGate!.complete();
+        await Future.wait([stopping, connecting])
+            .timeout(const Duration(seconds: 3));
+        expect(core.starts, 2);
+        expect(native.writes, 1);
+        expect(controller.desktopProxy.phase, DesktopProxyPhase.connected);
+        core.stopGate = null;
+        core.stopEntered = null;
+        core.stopResult = false;
+        await controller.setSystemProxyEnabled(false);
+        expect(controller.desktopProxy.phase, DesktopProxyPhase.failed);
+        expect(globalState.startTime, isNotNull);
+        expect(core.listener, isNotNull);
+        core.stopResult = true;
+        await controller.retrySystemProxy();
+        expect(controller.desktopProxy.phase, DesktopProxyPhase.disconnected);
+        expect(core.listener, isNull);
+        expect(globalState.startTime, isNull);
+      } finally {
+        if (core.stopGate?.isCompleted == false) core.stopGate!.complete();
+        await Future.wait(pending)
+            .then<void>((_) {}, onError: (Object _, StackTrace __) {});
+        await core.listener?.close();
+        globalState.stopUpdateTasks();
+        clashCore.clashInterface = oldCore;
+        ProxyPlatform.instance = oldNative;
+        appPath.dataDir = oldData;
+        PathProviderPlatform.instance = oldPaths;
+        await dir.delete(recursive: true);
+      }
+    });
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(tester.takeException(), isNull);
   }, skip: !Platform.isMacOS && !Platform.isWindows);
 
   testWidgets('external change cannot reconnect through settings or remount',

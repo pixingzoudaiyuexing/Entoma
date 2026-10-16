@@ -26,6 +26,7 @@ class DesktopProxyCoordinator extends ChangeNotifier {
     required this.configuration,
     required this.coreRunning,
     required this.hasOtherCoreUsers,
+    this.waitForCoreIdle,
     required this.startCore,
     required this.stopCore,
     required this.waitForListener,
@@ -37,6 +38,7 @@ class DesktopProxyCoordinator extends ChangeNotifier {
   final DesktopProxyConfiguration Function() configuration;
   final bool Function() coreRunning;
   final bool Function() hasOtherCoreUsers;
+  final Future<void> Function()? waitForCoreIdle;
   final Future<void> Function() startCore;
   final Future<void> Function() stopCore;
   final Future<void> Function(int port) waitForListener;
@@ -108,6 +110,9 @@ class DesktopProxyCoordinator extends ChangeNotifier {
           availability.owned ||
           availability.restorationPending;
       if (!availability.available) throw StateError('系统代理服务不可用');
+      // An independent/manual stop may already be waiting for its native
+      // acknowledgement. Do not reuse that listener before the stop settles.
+      await waitForCoreIdle?.call();
       if (!desired || _sealed) return;
       if (!coreRunning()) {
         _autoStarted = true;

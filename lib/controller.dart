@@ -49,6 +49,7 @@ class AppController {
         _manualCoreUse ||
         _ref.read(realTunEnableProvider) ||
         _ref.read(patchClashConfigProvider).tun.enable,
+    waitForCoreIdle: _waitForCoreOperations,
     startCore: () async => await _updateCoreStatus(true),
     stopCore: () async => await _updateCoreStatus(false),
     waitForListener: waitForMixedProxy,
