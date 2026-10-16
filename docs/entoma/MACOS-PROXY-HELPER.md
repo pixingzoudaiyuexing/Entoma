@@ -23,16 +23,14 @@ change system security policy. Formal Independent Delta Review remains required.
   privileged fallback for system proxy. DNS and TUN keep their separate existing
   authorization boundaries; this helper cannot operate either.
 
-## Components
-
 ## Compatibility and minimum signing inputs
 
-The GUI/pod deployment target remains macOS10.15. The current Helper candidate
-implements system proxy only on13+; `StartProxy` and `GetProxyStatus` fail
-explicitly on10.15–12, with no legacy fallback. This is a real compatibility gap
-relative to main, not permission to silently raise minimum supported macOS.
-Neither PR is a distributable macOS candidate until an Owner-approved support
-decision or independently reviewed compatibility implementation closes this gate.
+Owner's2026-10-17 decision makes macOS13.0 the minimum for the first public test
+version. The GUI, CocoaPods, owned plugins and Helper now share that supported
+minimum; the product installer has an explicit13.0 OS gate. macOS10.15–12 are
+unsupported and no fallback is being developed. See [MACOS-13-DELTA.md](MACOS-13-DELTA.md)
+for artifact checks and the narrowly scoped review handoff. This product decision
+does not waive the new exact-head delta review, signature or device gates.
 PR #8 alone also lacks the new native state protocol: combined macOS review must
 use PR #9's full tree. Keep the temporary-session branch separate.
 
