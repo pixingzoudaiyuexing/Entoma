@@ -9,6 +9,56 @@ import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:fl_clash/providers/desktop_proxy.dart';
+import 'package:fl_clash/widgets/desktop_proxy_status.dart';
+import 'package:fl_clash/common/desktop_proxy.dart';
+
+class ProxyHelperItem extends StatefulWidget {
+  const ProxyHelperItem({super.key});
+  @override
+  State<ProxyHelperItem> createState() => _ProxyHelperItemState();
+}
+
+class _ProxyHelperItemState extends State<ProxyHelperItem> {
+  bool pending = false;
+  String? message;
+  Future<void> action(Future<Map<String, dynamic>> Function() operation) async {
+    if (pending) return;
+    setState(() => pending = true);
+    try {
+      final status = await operation();
+      if (mounted)
+        setState(() => message = switch (status['registration']) {
+              'enabled' => '系统代理服务已启用',
+              'requiresApproval' => '请在系统设置中允许 Entoma 后重试',
+              'notRegistered' => '系统代理服务尚未启用',
+              _ => '请检查系统代理服务状态',
+            });
+    } catch (error) {
+      if (mounted) setState(() => message = desktopProxyFailure(error));
+    } finally {
+      if (mounted) setState(() => pending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListItem(
+      title: const Text('系统代理服务'),
+      subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(message ?? '首次启用需要系统确认；之后通过受限服务管理系统代理。'),
+        Wrap(children: [
+          TextButton(
+              onPressed: pending ? null : () => action(proxy!.registerHelper),
+              child: const Text('启用')),
+          TextButton(
+              onPressed: pending ? null : () => action(proxy!.helperStatus),
+              child: const Text('检查状态')),
+          TextButton(
+              onPressed: pending ? null : () => action(proxy!.unregisterHelper),
+              child: const Text('停用')),
+        ]),
+      ]));
+}
 
 class VPNItem extends ConsumerWidget {
   const VPNItem({super.key});
@@ -114,18 +164,35 @@ class SystemProxyItem extends ConsumerWidget {
   Widget build(BuildContext context, ref) {
     final systemProxy =
         ref.watch(networkSettingProvider.select((state) => state.systemProxy));
+    final desktop = Platform.isMacOS || Platform.isWindows;
+    final coordinator =
+        desktop ? ref.watch(desktopProxyCoordinatorProvider) : null;
 
     return ListItem.switchItem(
       title: Text(appLocalizations.systemProxy),
-      subtitle: Text(appLocalizations.systemProxyDesc),
+      subtitle: coordinator == null
+          ? Text(appLocalizations.systemProxyDesc)
+          : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              DesktopProxyStatusText(coordinator: coordinator),
+              if (coordinator.phase == DesktopProxyPhase.failed)
+                TextButton.icon(
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('重试'),
+                    onPressed: () => globalState.appController
+                        .setSystemProxyEnabled(systemProxy)),
+            ]),
       delegate: SwitchDelegate(
-        value: systemProxy,
+        value: coordinator?.desired ?? systemProxy,
         onChanged: (bool value) async {
-          ref.read(networkSettingProvider.notifier).updateState(
-                (state) => state.copyWith(
-                  systemProxy: value,
-                ),
-              );
+          if (desktop) {
+            await globalState.appController.setSystemProxyEnabled(value);
+          } else {
+            ref.read(networkSettingProvider.notifier).updateState(
+                  (state) => state.copyWith(
+                    systemProxy: value,
+                  ),
+                );
+          }
         },
       ),
     );
@@ -365,6 +432,7 @@ final networkItems = [
       title: appLocalizations.system,
       items: [
         SystemProxyItem(),
+        if (Platform.isMacOS) const ProxyHelperItem(),
         BypassDomainItem(),
       ],
     ),

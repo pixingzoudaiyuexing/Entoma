@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/common/proxy.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/providers/config.dart';
+import 'package:fl_clash/providers/app.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,12 +20,34 @@ class ProxyManager extends ConsumerStatefulWidget {
 
 class _ProxyManagerState extends ConsumerState<ProxyManager> {
   Future<void> _changes = Future.value();
+  Timer? _verification;
+  ProxyState? _lastDesktopState;
+  bool get _oneClick => Platform.isMacOS || Platform.isWindows;
+
+  void _syncDesktop(ProxyState value) {
+    final controller = globalState.appController;
+    if (controller.isClosing) return;
+    final previous = _lastDesktopState;
+    _lastDesktopState = value;
+    if (!ref.read(initProvider)) return;
+    if (previous == null ||
+        previous.systemProxy != value.systemProxy ||
+        previous.port != value.port ||
+        previous.bassDomain != value.bassDomain) {
+      // A failed transaction is only retried by a new explicit intent/config.
+      unawaited(controller.desktopProxy.request(value.systemProxy));
+    } else {
+      unawaited(controller.desktopProxy.verify());
+    }
+  }
+
   _updateProxy(ProxyState proxyState) async {
     if (proxy == null) return;
     final isStart = proxyState.isStart;
     final systemProxy = proxyState.systemProxy;
     final port = proxyState.port;
-    if (isStart && systemProxy &&
+    if (isStart &&
+        systemProxy &&
         !(globalState.isInit && globalState.appController.isClosing)) {
       try {
         if (await proxy!.startProxy(port, proxyState.bassDomain) == true) {
@@ -53,6 +78,10 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
       proxyStateProvider,
       (prev, next) {
         if (prev != next) {
+          if (_oneClick) {
+            _syncDesktop(next);
+            return;
+          }
           _changes = _changes.catchError((_) {}).then((_) async {
             if (mounted) await _updateProxy(ref.read(proxyStateProvider));
           });
@@ -60,10 +89,28 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
       },
       fireImmediately: true,
     );
+    if (_oneClick) {
+      ref.listenManual(initProvider, (previous, ready) {
+        if (ready) {
+          _lastDesktopState = null;
+          _syncDesktop(ref.read(proxyStateProvider));
+        }
+      });
+      _verification = Timer.periodic(const Duration(seconds: 3), (_) {
+        if (mounted) unawaited(globalState.appController.desktopProxy.verify());
+      });
+    }
   }
 
   @override
   void dispose() {
+    _verification?.cancel();
+    if (_oneClick) {
+      // Normal desktop exit owns and awaits restoration. Do not create an
+      // unobserved second native write queue during widget teardown.
+      super.dispose();
+      return;
+    }
     _changes = _changes.catchError((_) {}).then((_) async {
       try {
         await proxy?.stopProxy();

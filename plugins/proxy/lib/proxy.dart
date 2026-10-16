@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import "package:path/path.dart";
 
@@ -14,6 +15,23 @@ class Proxy extends ProxyPlatform {
   Proxy() : _operatingSystem = Platform.operatingSystem;
   @visibleForTesting
   Proxy.forPlatform(this._operatingSystem);
+
+  Future<Map<String, dynamic>> helperStatus() async =>
+      await const MethodChannel('proxy')
+          .invokeMapMethod<String, dynamic>('HelperStatus') ??
+      <String, dynamic>{};
+  Future<Map<String, dynamic>> registerHelper() async =>
+      await const MethodChannel('proxy')
+          .invokeMapMethod<String, dynamic>('RegisterHelper') ??
+      <String, dynamic>{};
+  Future<Map<String, dynamic>> unregisterHelper() async =>
+      await const MethodChannel('proxy')
+          .invokeMapMethod<String, dynamic>('UnregisterHelper') ??
+      <String, dynamic>{};
+
+  @override
+  Future<ProxyStatus> getProxyStatus(int port, List<String> bypassDomain) =>
+      ProxyPlatform.instance.getProxyStatus(port, bypassDomain);
 
   @override
   Future<bool?> startProxy(

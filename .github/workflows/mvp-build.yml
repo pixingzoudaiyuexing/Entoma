@@ -51,6 +51,11 @@ jobs:
           flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
           flutter test --no-pub test
           (cd core && CGO_ENABLED=0 go test -tags=with_gvisor ./...)
+      - name: Native desktop proxy policy tests
+        if: matrix.platform != 'windows'
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror test/native/windows_proxy_state_test.cpp -o "$RUNNER_TEMP/windows-proxy-policy-tests"
+          "$RUNNER_TEMP/windows-proxy-policy-tests"
       - uses: android-actions/setup-android@00854ea68c109d98c75d956347303bf7c45b0277
         if: matrix.platform == 'android'
         with:
