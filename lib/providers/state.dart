@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -9,6 +11,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'app.dart';
 import 'config.dart';
+import 'desktop_proxy.dart';
 
 part 'generated/state.g.dart';
 
@@ -174,7 +177,9 @@ TrayState trayState(Ref ref) {
     mode: clashConfig.mode,
     port: clashConfig.mixedPort,
     autoLaunch: appSetting.autoLaunch,
-    systemProxy: networkProps.systemProxy,
+    systemProxy: Platform.isMacOS || Platform.isWindows
+        ? ref.watch(desktopProxyCoordinatorProvider).desired
+        : networkProps.systemProxy,
     tunEnable: clashConfig.tun.enable,
     isStart: isStart,
     locale: appSetting.locale,

@@ -25,6 +25,16 @@ class MethodChannelProxy extends ProxyPlatform {
   }
 
   @override
+  Future<ProxyStatus> getProxyStatus(
+      int port, List<String> bypassDomain) async {
+    final status = await methodChannel.invokeMapMethod<dynamic, dynamic>(
+        'GetProxyStatus', {'port': port, 'bypassDomain': bypassDomain});
+    if (status == null)
+      throw StateError('Native system proxy status unavailable');
+    return ProxyStatus.fromMap(status);
+  }
+
+  @override
   Future<bool?> startAutoDns() =>
       methodChannel.invokeMethod<bool>('StartAutoDns');
 

@@ -4,6 +4,10 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/views/config/network.dart';
 import 'package:fl_clash/widgets/widgets.dart';
+import 'package:fl_clash/state.dart';
+import 'package:fl_clash/providers/desktop_proxy.dart';
+import 'package:fl_clash/widgets/desktop_proxy_status.dart';
+import 'package:fl_clash/common/desktop_proxy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -106,6 +110,7 @@ class SystemProxyButton extends StatelessWidget {
                   generateSection(
                     items: [
                       SystemProxyItem(),
+                      if (Platform.isMacOS) const ProxyHelperItem(),
                       BypassDomainItem(),
                     ],
                   ),
@@ -148,17 +153,41 @@ class SystemProxyButton extends StatelessWidget {
                 builder: (_, ref, __) {
                   final systemProxy = ref.watch(networkSettingProvider
                       .select((state) => state.systemProxy));
-                  return Switch(
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    value: systemProxy,
-                    onChanged: (value) {
-                      ref.read(networkSettingProvider.notifier).updateState(
-                            (state) => state.copyWith(
-                              systemProxy: value,
-                            ),
-                          );
-                    },
-                  );
+                  final desktop = Platform.isMacOS || Platform.isWindows;
+                  final coordinator = desktop
+                      ? ref.watch(desktopProxyCoordinatorProvider)
+                      : null;
+                  return Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (coordinator != null)
+                      Tooltip(
+                        message: coordinator.phase == DesktopProxyPhase.failed
+                            ? desktopProxyFailure(coordinator.failure)
+                            : desktopProxyLabel(coordinator),
+                        child: Text(desktopProxyLabel(coordinator)),
+                      ),
+                    if (coordinator?.phase == DesktopProxyPhase.failed)
+                      IconButton(
+                          tooltip: '重试',
+                          icon: const Icon(Icons.refresh),
+                          onPressed: () =>
+                              globalState.appController.retrySystemProxy()),
+                    Switch(
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      value: coordinator?.desired ?? systemProxy,
+                      onChanged: (value) {
+                        if (desktop) {
+                          globalState.appController
+                              .setSystemProxyEnabled(value);
+                        } else {
+                          ref.read(networkSettingProvider.notifier).updateState(
+                                (state) => state.copyWith(
+                                  systemProxy: value,
+                                ),
+                              );
+                        }
+                      },
+                    )
+                  ]);
                 },
               )
             ],

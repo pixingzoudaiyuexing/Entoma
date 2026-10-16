@@ -45,16 +45,21 @@ class GlobalState {
   UpdateTasks tasks = [];
   final navigatorKey = GlobalKey<NavigatorState>();
   AppController? _appController;
+  final appControllerChanges = ValueNotifier<int>(0);
   GlobalKey<CommonScaffoldState> homeScaffoldKey = GlobalKey();
   bool isInit = false;
 
-  bool get isStart => startTime != null && startTime!.isBeforeNow;
+  // Native start/stop acknowledgements own this state. Comparing wall time
+  // loses liveness in the start tick or after the system clock moves backwards.
+  bool get isStart => startTime != null;
 
   AppController get appController => _appController!;
 
   set appController(AppController appController) {
+    final changed = !identical(_appController, appController);
     _appController = appController;
     isInit = true;
+    if (changed) appControllerChanges.value++;
   }
 
   GlobalState._internal();
@@ -158,7 +163,9 @@ class GlobalState {
         throw StateError('代理监听尚未停止');
       }
     } else {
-      await clashCore.stopListener();
+      if (!await clashCore.stopListener()) {
+        throw StateError('代理监听停止尚未确认，请重试');
+      }
     }
     startTime = null;
     stopUpdateTasks();

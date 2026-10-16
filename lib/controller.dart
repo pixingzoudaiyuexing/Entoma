@@ -21,6 +21,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'common/common.dart';
 import 'common/macos_exit.dart';
 import 'common/android_exit.dart';
+import 'common/desktop_proxy.dart';
 import 'models/models.dart';
 import 'views/profiles/override_profile.dart';
 import 'solution/session.dart';
@@ -35,16 +36,45 @@ class _ProfileTransactionLease {
 }
 
 class AppController {
+  bool _manualCoreUse = false;
+  int _desktopIntentRevision = 0;
+  bool get usesDesktopProxy => Platform.isMacOS || Platform.isWindows;
+  late final desktopProxy = DesktopProxyCoordinator(
+    configuration: () => DesktopProxyConfiguration(
+        _ref.read(acceptedMixedPortProvider) ??
+            _ref.read(patchClashConfigProvider).mixedPort,
+        _ref.read(networkSettingProvider).bypassDomain),
+    coreRunning: () => globalState.isStart,
+    hasOtherCoreUsers: () =>
+        _manualCoreUse ||
+        _ref.read(realTunEnableProvider) ||
+        _ref.read(patchClashConfigProvider).tun.enable,
+    waitForCoreIdle: _waitForListenerStops,
+    startCore: () async => await _updateCoreStatus(true),
+    stopCore: () async => await _updateCoreStatus(false),
+    waitForListener: waitForMixedProxy,
+    apply: (port, bypass) => proxy!.startProxy(port, bypass),
+    restore: () => proxy!.stopProxy(),
+    readback: (port, bypass) => proxy!.getProxyStatus(port, bypass),
+  );
   int? lastProfileModified;
   ClashConfig? _acceptedConfig;
   bool _connecting = false;
   Future<void> _configurationQueue = Future.value();
   final Set<Future<void>> _coreOperations = {};
+  final Set<Future<void>> _listenerStops = {};
+  Object? _listenerStopFailure;
   late final _macOSExit = MacOSExitCoordinator(
-    prepareForExit: () async => await clashService?.cancelPendingLaunch(),
-    waitForConfiguration: _waitForCoreOperations,
+    prepareForExit: () async {
+      desktopProxy.seal();
+      await clashService?.cancelPendingLaunch();
+    },
+    waitForConfiguration: () async {
+      await _waitForCoreOperations();
+      await desktopProxy.waitForIdle();
+    },
     restoreDns: () => system.setMacOSDns(true),
-    restoreProxy: () async => await proxy?.stopProxy() == true,
+    restoreProxy: () => desktopProxy.prepareForExit(),
     shutdown: () async {
       await clashCore.shutdown();
       await clashService?.destroy();
@@ -62,14 +92,34 @@ class AppController {
     exit: androidFinishExit,
     cancelExit: androidCancelExit,
   );
+  late final _windowsExit = MacOSExitCoordinator(
+    prepareForExit: () async {
+      desktopProxy.seal();
+      await clashService?.cancelPendingLaunch();
+    },
+    waitForConfiguration: () async {
+      await _waitForCoreOperations();
+      await desktopProxy.waitForIdle();
+    },
+    restoreDns: () async => true,
+    restoreProxy: () => desktopProxy.prepareForExit(),
+    shutdown: () async {
+      if (!await clashCore.shutdown()) throw StateError('核心尚未停止');
+      await clashService?.destroy();
+    },
+    savePreferences: () async => await savePreferences(),
+    exit: () async => await system.exit(),
+  );
 
   // Overridable platform/actions also let host tests exercise the actual
   // controller admission and exit wiring without closing the test process.
   bool get usesAndroidExit => Platform.isAndroid;
-  bool get _usesCoreTransactions => Platform.isMacOS || usesAndroidExit;
+  bool get _usesCoreTransactions => usesDesktopProxy || usesAndroidExit;
   bool get isClosing => usesAndroidExit
       ? _androidExit.isClosing
-      : Platform.isMacOS && _macOSExit.isClosing;
+      : Platform.isMacOS
+          ? _macOSExit.isClosing
+          : Platform.isWindows && _windowsExit.isClosing;
 
   Future<void> androidPrepareForExit() async {
     if (await service?.beginExit() != true) {
@@ -155,6 +205,21 @@ class AppController {
     }
   }
 
+  Future<void> _waitForListenerStops() async {
+    // Profile transactions can themselves await a proxy-off rollback. They
+    // belong to exit drain, never this connect barrier (which would self-wait).
+    while (_listenerStops.isNotEmpty) {
+      await Future.wait([
+        for (final stop in _listenerStops.toList()) stop.catchError((_) {}),
+      ]);
+    }
+    // A timed-out stop may still execute natively after returning false. Do not
+    // reuse that listener until an explicit stop retry is acknowledged.
+    if (_listenerStopFailure != null) {
+      throw StateError('核心停止尚未确认，请重试停止后再连接');
+    }
+  }
+
   Future<T> _configure<T>(Future<T> Function() action) {
     final operation = _configurationQueue.catchError((_) {}).then((_) {
       if (_configurationClosing) throw _ConfigurationClosing();
@@ -225,7 +290,35 @@ class AppController {
         }
       });
 
-  updateStatus(bool isStart) async {
+  Future<void> updateStatus(bool isStart) async {
+    int? desktopRevision;
+    if (usesDesktopProxy) {
+      if (isClosing && isStart) return;
+      desktopRevision = ++_desktopIntentRevision;
+      _manualCoreUse = isStart;
+      if (!isStart) {
+        // Stopping the connection preserves the mode used by the next manual
+        // start or autoRun. A saved preference is not a current-session intent.
+        await desktopProxy.request(false);
+        if (desktopProxy.phase == DesktopProxyPhase.failed) {
+          throw StateError('系统代理尚未恢复，核心已保留');
+        }
+        // A later one-click connect may have replaced the stop intent while
+        // restoration was awaited. Never stop its newly confirmed listener.
+        if (desktopProxy.desired ||
+            desktopProxy.phase != DesktopProxyPhase.disconnected) return;
+      }
+    }
+    await _updateCoreStatus(isStart);
+    if (usesDesktopProxy &&
+        isStart &&
+        !isClosing &&
+        desktopRevision == _desktopIntentRevision) {
+      await desktopProxy.request(_ref.read(networkSettingProvider).systemProxy);
+    }
+  }
+
+  Future<void> _updateCoreStatus(bool isStart) async {
     if (isStart) {
       await _coreOperation(() async {
         if (system.isDesktop && clashService?.hasSession != true) {
@@ -248,12 +341,26 @@ class AppController {
         if (!isClosing) addCheckIpNumDebounce();
       });
     } else {
-      await globalState.handleStop();
-      await clashCore.resetTraffic();
-      _ref.read(trafficsProvider.notifier).clear();
-      _ref.read(totalTrafficProvider.notifier).value = Traffic();
-      _ref.read(runTimeProvider.notifier).value = null;
-      addCheckIpNumDebounce();
+      final stopping = _coreOperation(() async {
+        try {
+          await globalState.handleStop();
+        } catch (error) {
+          _listenerStopFailure = error;
+          rethrow;
+        }
+        _listenerStopFailure = null;
+        await clashCore.resetTraffic();
+        _ref.read(trafficsProvider.notifier).clear();
+        _ref.read(totalTrafficProvider.notifier).value = Traffic();
+        _ref.read(runTimeProvider.notifier).value = null;
+        addCheckIpNumDebounce();
+      });
+      _listenerStops.add(stopping);
+      stopping.then<void>((_) => _listenerStops.remove(stopping),
+          onError: (Object _, StackTrace __) {
+        _listenerStops.remove(stopping);
+      });
+      await stopping;
     }
   }
 
@@ -263,6 +370,7 @@ class AppController {
     _ref.read(runTimeProvider.notifier).value = null;
     _ref.read(realTunEnableProvider.notifier).value = false;
     _ref.read(trafficsProvider.notifier).clear();
+    if (usesDesktopProxy) unawaited(desktopProxy.verify());
   }
 
   updateRunTime() {
@@ -440,7 +548,9 @@ class AppController {
           _ref
               .read(patchClashConfigProvider.notifier)
               .updateState((_) => previous);
-        if (message.contains('rollback failed')) await updateStatus(false);
+        if (message.contains('rollback failed')) {
+          await _configurationRollbackFailed();
+        }
         throw message;
       }
       _acceptedConfig = candidate;
@@ -507,7 +617,9 @@ class AppController {
       if (_configurationClosing) throw _ConfigurationClosing();
       final message = await clashCore.setupConfig(params);
       if (message.isNotEmpty) {
-        if (message.contains('rollback failed')) await updateStatus(false);
+        if (message.contains('rollback failed')) {
+          await _configurationRollbackFailed();
+        }
         throw message;
       }
       lastProfileModified = await _ref.read(
@@ -525,6 +637,18 @@ class AppController {
     await _setupClashConfig();
     await updateGroups();
     await updateProviders();
+  }
+
+  Future<void> _configurationRollbackFailed() async {
+    if (usesDesktopProxy) {
+      // The current apply may be owned by the one-click startup flight. Signal
+      // its final intent, then unwind the configuration error; awaiting that
+      // same flight from within startCore would deadlock. The coordinator will
+      // restore system settings before releasing an auto-started listener.
+      unawaited(setSystemProxyEnabled(false));
+    } else {
+      await updateStatus(false);
+    }
   }
 
   Future applyProfile({bool silence = false}) async {
@@ -660,7 +784,15 @@ class AppController {
     }
     if (Platform.isMacOS) {
       if (!await _macOSExit.requestExit()) {
+        desktopProxy.cancelExit();
         globalState.showNotifier('退出尚未完成：系统网络设置或核心尚未安全恢复，请重试退出。');
+      }
+      return;
+    }
+    if (Platform.isWindows) {
+      if (!await _windowsExit.requestExit()) {
+        desktopProxy.cancelExit();
+        globalState.showNotifier('退出尚未完成：系统代理或核心尚未安全恢复，请重试退出。');
       }
       return;
     }
@@ -821,6 +953,9 @@ class AppController {
     if (Platform.isAndroid) {
       await globalState.updateStartTime();
     }
+    // A user may already have clicked while account/core initialization was
+    // pending. Late startup must not replace that newer explicit intent.
+    if (usesDesktopProxy && _desktopIntentRevision != 0) return;
     final status = globalState.isStart == true
         ? true
         : _ref.read(appSettingProvider).autoRun;
@@ -1074,12 +1209,23 @@ class AppController {
         );
   }
 
-  updateSystemProxy() {
+  Future<void> setSystemProxyEnabled(bool enabled) async {
+    if (isClosing && enabled) return;
+    if (usesDesktopProxy) _desktopIntentRevision++;
     _ref.read(networkSettingProvider.notifier).updateState(
-          (state) => state.copyWith(
-            systemProxy: !state.systemProxy,
-          ),
+          (state) => state.copyWith(systemProxy: enabled),
         );
+    if (usesDesktopProxy) await desktopProxy.request(enabled);
+  }
+
+  updateSystemProxy() => setSystemProxyEnabled(usesDesktopProxy
+      ? !desktopProxy.desired
+      : !_ref.read(networkSettingProvider).systemProxy);
+
+  Future<void> retrySystemProxy() async {
+    if (!usesDesktopProxy) return;
+    _desktopIntentRevision++;
+    await desktopProxy.request(desktopProxy.desired);
   }
 
   Future<List<Package>> getPackages() async {
