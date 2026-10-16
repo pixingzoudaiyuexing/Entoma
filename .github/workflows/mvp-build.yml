@@ -56,6 +56,11 @@ jobs:
         run: |
           c++ -std=c++17 -Wall -Wextra -Werror test/native/windows_proxy_state_test.cpp -o "$RUNNER_TEMP/windows-proxy-policy-tests"
           "$RUNNER_TEMP/windows-proxy-policy-tests"
+      - name: macOS ownership and restricted helper tests
+        if: matrix.platform == 'macos'
+        run: |
+          bash tool/test_macos_network_ownership.sh
+          bash tool/test_macos_proxy_helper.sh
       - uses: android-actions/setup-android@00854ea68c109d98c75d956347303bf7c45b0277
         if: matrix.platform == 'android'
         with:

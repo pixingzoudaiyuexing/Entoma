@@ -11,5 +11,5 @@ Pod::Spec.new do |s|
   s.dependency 'FlutterMacOS'
   s.platform = :osx, '10.15'
   s.swift_version = '5.0'
-  s.frameworks = 'SystemConfiguration', 'Security'
+  s.frameworks = 'SystemConfiguration', 'Security', 'ServiceManagement'
 end

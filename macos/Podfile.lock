@@ -55,7 +55,7 @@ SPEC CHECKSUMS:
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   HotKey: e96d8a2ddbf4591131e2bb3f54e69554d90cdca6
   hotkey_manager_macos: a4317849af96d2430fa89944d3c58977ca089fbe
-  proxy: 9ba447cc3063cfe2c8ea32b25697b17b6ff19441
+  proxy: d7fe6f3cf32989e9afc89ab733269ce09c1aadcd
   screen_retriever_macos: 452e51764a9e1cdb74b3c541238795849f21557f
   tray_manager: a104b5c81b578d83f3c3d0f40a997c8b10810166
   window_ext: 4afef727fe428b30c68ce800ba92e890fd329f63
