@@ -17,7 +17,10 @@ String desktopProxyFailure(Object? failure) {
       'HELPER_SIGNING_REQUIRED' => '此测试包未签名，系统代理服务暂不可用。',
       'HELPER_APPROVAL_REQUIRED' => '请在系统设置中允许 Entoma 后重试。',
       'HELPER_NOT_REGISTERED' => '请先启用系统代理服务。',
-      'HELPER_NOT_FOUND' => '请先安装并启用已签名的系统代理服务。',
+      'HELPER_NOT_FOUND' => '请在网络设置中安装系统代理服务。',
+      'HELPER_IDENTITY_REJECTED' => '应用与系统代理服务不匹配，请安装／更新服务。',
+      'HELPER_UNAVAILABLE' => '系统代理服务不可用，请检查状态或安装／更新。',
+      'NETWORK_PERMISSION_CANCELLED' => '已取消管理员授权，可稍后重试安装或卸载。',
       'HELPER_REQUIRES_MACOS_13' => '系统代理服务需要 macOS 13 或更高版本。',
       'HELPER_OPERATION_UNKNOWN' ||
       'HELPER_RECOVERY_REQUIRED' ||

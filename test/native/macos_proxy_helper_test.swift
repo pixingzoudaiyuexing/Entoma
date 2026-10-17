@@ -108,15 +108,23 @@ private final class LocalIPCFixture: NSObject, NSXPCListenerDelegate, ProxyHelpe
   private var connections: [NSXPCConnection] = []
   private var closing = false
   private var owned = false
-  init(mode: Mode) {
+  private let acceptedRequirement: String?
+  init(mode: Mode, requirement: String? = nil) {
     self.mode = mode
+    self.acceptedRequirement = requirement
     super.init()
+    if #available(macOS 13.0, *), let requirement = requirement {
+      listener.setConnectionCodeSigningRequirement(requirement)
+    }
     listener.delegate = self
     listener.resume()
   }
   func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
     connectionLock.lock(); defer { connectionLock.unlock() }
     guard !closing else { return false }
+    if #available(macOS 13.0, *), let requirement = acceptedRequirement {
+      connection.setCodeSigningRequirement(requirement)
+    }
     connection.exportedInterface = NSXPCInterface(with: ProxyHelperProtocol.self)
     connection.exportedObject = self
     connections.append(connection)
@@ -137,11 +145,11 @@ private final class LocalIPCFixture: NSObject, NSXPCListenerDelegate, ProxyHelpe
   func restoreProxy(reply: @escaping (NSDictionary?, String?) -> Void) { owned = false; respond(reply) }
   func prepareUnregister(reply: @escaping (NSDictionary?, String?) -> Void) { owned = false; respond(reply) }
   @available(macOS 13.0, *)
-  func client(timeout: TimeInterval = 2) -> ProxyHelperClient {
+  func client(timeout: TimeInterval = 2, management: ((String) throws -> Void)? = nil) -> ProxyHelperClient {
     let connection = NSXPCConnection(listenerEndpoint: listener.endpoint)
     connection.remoteObjectInterface = NSXPCInterface(with: ProxyHelperProtocol.self)
     connection.resume()
-    return ProxyHelperClient(fixtureConnection: connection, timeout: timeout)
+    return ProxyHelperClient(fixtureConnection: connection, timeout: timeout, management: management)
   }
   func close() {
     listener.invalidate()
@@ -154,6 +162,20 @@ private final class LocalIPCFixture: NSObject, NSXPCListenerDelegate, ProxyHelpe
   }
 }
 
+private final class ServiceFixture: ProxyHelperServiceBackend {
+  var events: [String] = []
+  var fail: Set<String> = []
+  func step(_ event: String) throws { events.append(event); if fail.contains(event) { throw Failure.injected } }
+  func stage() throws { try step("stage") }
+  func stop() throws { try step("stop") }
+  func recover() throws { try step("recover") }
+  func publish() throws { try step("publish") }
+  func start() throws { try step("start") }
+  func rollback() throws { try step("rollback") }
+  func commit() throws { try step("commit") }
+  func remove() throws { try step("remove") }
+}
+
 @main
 private enum ProxyHelperTests {
   static func main() throws {
@@ -163,35 +185,228 @@ private enum ProxyHelperTests {
         try fails { try ProxyHelperIdentity.validate(port: 17890, bypass: ["bad\nentry"]) }
         try fails { try ProxyHelperIdentity.validate(port: 17890, bypass: Array(repeating: "a", count: 257)) }
         try fails { try ProxyHelperIdentity.validate(port: 17890, bypass: [String(repeating: "界", count: 400)]) }
-        try fails { _ = try ProxyHelperIdentity.requirement(identifier: "other.app", team: "ABCDEFGHIJ") }
-        try fails { _ = try ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.appIdentifier, team: "bad\"team") }
-        let expression = try ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.appIdentifier, team: "ABCDEFGHIJ")
+        try fails { _ = try ProxyHelperIdentity.requirement(identifier: "other.app", hashes: [String(repeating: "a", count: 40)]) }
+        try fails { _ = try ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.appIdentifier, hashes: ["bad\"hash"]) }
+        let expression = try ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.appIdentifier, hashes: [String(repeating: "a", count: 40)])
         var requirement: SecRequirement?
         try expect(SecRequirementCreateWithString(expression as CFString, [], &requirement) == errSecSuccess,
-                   "public Security API parses strict requirement")
+                   "public Security API parses pinned requirement")
       }),
-      ("unsigned fixture cannot query or register privileged service", {
-        var code: SecCode?
-        var staticCode: SecStaticCode?
-        var raw: CFDictionary?
-        try expect(SecCodeCopySelf([], &code) == errSecSuccess, "fixture code identity available")
-        try expect(SecCodeCopyStaticCode(code!, [], &staticCode) == errSecSuccess, "fixture static identity available")
-        try expect(SecCodeCopySigningInformation(staticCode!, SecCSFlags(rawValue: kSecCSSigningInformation), &raw) == errSecSuccess,
-                   "fixture signature information available")
-        let info = raw! as NSDictionary
-        try expect(info[kSecCodeInfoIdentifier] as? String == ProxyHelperIdentity.appIdentifier, "real GUI identifier is present")
-        let flags = info[kSecCodeInfoFlags] as? NSNumber
-        try expect((flags?.uint32Value ?? 0) & UInt32(SecCodeSignatureFlags.adhoc.rawValue) != 0,
-                   "negative signing test really uses an ad-hoc signature")
-        try fails { _ = try ProxyHelperIdentity.ownTeam(expectedIdentifier: ProxyHelperIdentity.appIdentifier) }
-        if #available(macOS 13.0, *) {
-          let client = ProxyHelperClient()
-          for action in [{ _ = try client.registrationStatus() }, { _ = try client.register() },
-                         { _ = try client.status(port: 17890, bypass: []) }, { _ = try client.apply(port: 17890, bypass: []) }] {
-            do { try action(); throw Failure.assertion("unsigned operation accepted") }
-            catch ProxyHelperFailure.signingRequired {} // no register call is reached
+      ("ad-hoc installation identity is accepted but forged identifiers and hashes are rejected", {
+        let url = URL(fileURLWithPath: CommandLine.arguments[0])
+        let hashes = try ProxyHelperIdentity.hashes(at: url, identifier: ProxyHelperIdentity.appIdentifier)
+        try expect(!hashes.isEmpty, "real ad-hoc code must be usable without Developer ID")
+        try expect(hashes.contains(ProxyHelperIdentity.runningHash(identifier: ProxyHelperIdentity.appIdentifier)), "pin belongs to running GUI, not only its path")
+        try fails { _ = try ProxyHelperIdentity.hashes(at: url, identifier: ProxyHelperIdentity.helperIdentifier) }
+        var code: SecStaticCode?
+        try expect(SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, "fixture identity available")
+        let wrong = try ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.appIdentifier, hashes: [String(repeating: "0", count: 40)])
+        var requirement: SecRequirement?
+        try expect(SecRequirementCreateWithString(wrong as CFString, [], &requirement) == errSecSuccess, "wrong pin parses")
+        try expect(SecStaticCodeCheckValidity(code!, [], requirement) != errSecSuccess, "same identifier with wrong approved pin rejected")
+        let receipt = ProxyHelperReceipt(version: ProxyHelperIdentity.protocolVersion, appHashes: [hashes[0]], helperHashes: [hashes[0]])
+        try receipt.validate()
+        try fails { try ProxyHelperReceipt(version: 999, appHashes: hashes, helperHashes: hashes).validate() }
+        try fails { try ProxyHelperReceipt(version: ProxyHelperIdentity.protocolVersion, appHashes: [hashes[0], String(repeating: "a", count: 40)], helperHashes: [hashes[0]]).validate() }
+      }),
+      ("local ad-hoc GUI loads its dylib with explicit entitlement while root helper rejects that entitlement", {
+        try withDirectory { directory in
+          func run(_ arguments: [String]) throws -> Int32 {
+            let task = Process(); task.executableURL = URL(fileURLWithPath: arguments[0]); task.arguments = Array(arguments.dropFirst())
+            task.standardOutput = FileHandle.nullDevice; task.standardError = FileHandle.nullDevice
+            try task.run(); task.waitUntilExit(); return task.terminationStatus
           }
-          try expect(!client.needsRestoration, "preflight failure acquired no resources")
+          let library = directory.appendingPathComponent("fixture.dylib")
+          let loader = directory.appendingPathComponent("loader")
+          let librarySource = directory.appendingPathComponent("library.c")
+          let loaderSource = directory.appendingPathComponent("loader.c")
+          try "int entoma_fixture(void) { return 42; }\n".write(to: librarySource, atomically: true, encoding: .utf8)
+          try "#include <dlfcn.h>\nint main(int n,char **v) { void *p=dlopen(v[1],RTLD_NOW); if(!p) return 1; int (*f)(void)=dlsym(p,\"entoma_fixture\"); return !f || f()!=42; }\n".write(to: loaderSource, atomically: true, encoding: .utf8)
+          try expect(run(["/usr/bin/xcrun", "clang", "-dynamiclib", librarySource.path, "-o", library.path]) == 0, "owned dylib compile")
+          try expect(run(["/usr/bin/xcrun", "clang", loaderSource.path, "-o", loader.path]) == 0, "owned loader compile")
+          for target in [library, loader] {
+            try expect(run(["/usr/bin/codesign", "--force", "--options", "runtime", "--sign", "-", "--identifier", ProxyHelperIdentity.appIdentifier, target.path]) == 0, "ad-hoc runtime sign")
+          }
+          let baselineLoad = try run([loader.path, library.path])
+          // macOS releases and hosted-runner policy differ. The Owner Mac's
+          // rejection is preserved separately; do not invent it on permissive
+          // runners. The positive load and privileged-policy rejection below
+          // must pass on every host.
+          print("INFO: host ad-hoc dylib baseline exit=\(baselineLoad)")
+          let entitlements = directory.appendingPathComponent("local.entitlements")
+          try PropertyListSerialization.data(fromPropertyList: ["com.apple.security.cs.disable-library-validation": true], format: .xml, options: 0).write(to: entitlements)
+          try expect(run(["/usr/bin/codesign", "--force", "--options", "runtime", "--sign", "-", "--entitlements", entitlements.path, "--identifier", ProxyHelperIdentity.appIdentifier, loader.path]) == 0, "sign explicit local GUI permission")
+          try expect(run([loader.path, library.path]) == 0, "local GUI actually loads/executes owned dylib")
+          _ = try ProxyHelperIdentity.hashes(at: loader, identifier: ProxyHelperIdentity.appIdentifier)
+          try expect(run(["/usr/bin/codesign", "--force", "--options", "runtime", "--sign", "-", "--entitlements", entitlements.path, "--identifier", ProxyHelperIdentity.helperIdentifier, loader.path]) == 0, "root rejection fixture sign")
+          try fails { _ = try ProxyHelperIdentity.hashes(at: loader, identifier: ProxyHelperIdentity.helperIdentifier) }
+        }
+      }),
+      ("real XPC authenticates approved ad-hoc code and rejects a wrong pin", {
+        if #available(macOS 13.0, *) {
+          let hashes = try ProxyHelperIdentity.hashes(at: URL(fileURLWithPath: CommandLine.arguments[0]), identifier: ProxyHelperIdentity.appIdentifier)
+          let accepted = try ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.appIdentifier, hashes: hashes)
+          let good = LocalIPCFixture(mode: .normal, requirement: accepted)
+          defer { good.close() }
+          let goodClient = good.client()
+          try expect(goodClient.status(port: 17890, bypass: [])["available"] as? Bool == true, "approved caller gets real reply")
+          let rejected = try ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.appIdentifier, hashes: [String(repeating: "0", count: 40)])
+          let bad = LocalIPCFixture(mode: .normal, requirement: rejected)
+          defer { bad.close() }
+          let badClient = bad.client(timeout: 0.2)
+          try fails { _ = try badClient.apply(port: 17890, bypass: []) }
+        }
+      }),
+      ("interrupted install and uninstall select durable previous state without resurrecting inert backups", {
+        let old = Data("old".utf8), new = Data("new".utf8)
+        for operation in ["install", "uninstall"] {
+          for previous in [true, false] {
+            let marker = try PropertyListSerialization.data(fromPropertyList: ["operation": operation, "hadPrevious": previous], format: .binary, options: 0)
+            for binary in [nil, new] as [Data?] {
+              for receipt in [nil, new] as [Data?] {
+                let plan = try ProxyHelperRecoveryPlan(currentBinary: binary, currentReceipt: receipt,
+                  previousBinary: old, previousReceipt: old, transaction: marker)
+                try expect(plan.binary == (previous ? old : nil) && plan.receipt == (previous ? old : nil), "marker selects intended prior state")
+                try expect(plan.permitsPartialEmptyState == !previous, "both operation kinds can recover an empty old state")
+              }
+            }
+          }
+        }
+        let committed = try ProxyHelperRecoveryPlan(currentBinary: new, currentReceipt: new, previousBinary: old, previousReceipt: old, transaction: nil)
+        try expect(committed.binary == new, "completed install ignores inert backup")
+        try fails { _ = try ProxyHelperRecoveryPlan(currentBinary: new, currentReceipt: nil, previousBinary: old, previousReceipt: old, transaction: nil) }
+        let malformed = try PropertyListSerialization.data(fromPropertyList: ["operation": "exec", "hadPrevious": false], format: .binary, options: 0)
+        try fails { _ = try ProxyHelperRecoveryPlan(currentBinary: nil, currentReceipt: nil, previousBinary: nil, previousReceipt: nil, transaction: malformed) }
+      }),
+      ("installer publishes only after stop and recovery and rolls back failed starts", {
+        let backend = ServiceFixture()
+        try ProxyHelperServiceManager(backend: backend).install()
+        try expect(backend.events == ["stage", "stop", "recover", "publish", "start", "commit"], "safe install transaction")
+        for failure in ["stage", "stop", "recover", "publish", "start", "commit"] {
+          let backend = ServiceFixture(); backend.fail = [failure]
+          try fails { try ProxyHelperServiceManager(backend: backend).install() }
+          if ["stage", "stop"].contains(failure) {
+            try expect(!backend.events.contains("publish") && !backend.events.contains("rollback"), "preflight/stop never publishes")
+          } else { try expect(backend.events.last == "rollback", "failed install preserves previous service") }
+        }
+        let broken = ServiceFixture(); broken.fail = ["start", "rollback"]
+        do { try ProxyHelperServiceManager(backend: broken).install(); throw Failure.assertion("accepted failed rollback") }
+        catch ProxyHelperFailure.recoveryRequired {}
+      }),
+      ("uninstall never removes recovery files on failed stop or restoration", {
+        let ok = ServiceFixture()
+        try ProxyHelperServiceManager(backend: ok).uninstall()
+        try expect(ok.events == ["stop", "recover", "remove"], "cleanup requires actual recovery")
+        for failure in ["stop", "recover", "remove"] {
+          let backend = ServiceFixture(); backend.fail = [failure]
+          try fails { try ProxyHelperServiceManager(backend: backend).uninstall() }
+          if failure != "remove" { try expect(!backend.events.contains("remove"), "no destructive cleanup before restore") }
+          if failure == "recover" { try expect(backend.events.last == "rollback", "restart previous recovery agent") }
+        }
+      }),
+      ("real installation files reject symlink hardlink FIFO loose mode and overlapping installers", {
+        try withDirectory { directory in
+          let files = try ProxyHelperFiles.fixture(directory)
+          try files.write("receipt.plist", bytes: Data("safe".utf8))
+          try expect(files.read("receipt.plist") == Data("safe".utf8), "atomic real-file round trip")
+          try files.locked {
+            let second = try ProxyHelperFiles.fixture(directory)
+            try fails { try second.locked {} }
+          }
+          try files.locked {} // lock released, not removed/recreated
+          try files.remove("receipt.plist")
+          let path = directory.appendingPathComponent("receipt.plist").path
+          let outside = directory.appendingPathComponent("outside")
+          try Data("protected".utf8).write(to: outside)
+          try expect(symlink(outside.path, path) == 0, "symlink fixture")
+          try fails { _ = try files.read("receipt.plist") }
+          try fails { try files.write("receipt.plist", bytes: Data()) }
+          unlink(path)
+          try expect(link(outside.path, path) == 0, "hardlink fixture")
+          try fails { _ = try files.read("receipt.plist") }; unlink(path)
+          try expect(mkfifo(path, 0o600) == 0, "FIFO fixture")
+          try fails { _ = try files.read("receipt.plist") }; unlink(path)
+          try files.write("receipt.plist", bytes: Data("safe".utf8))
+          chmod(path, 0o666)
+          try fails { _ = try files.read("receipt.plist") }
+          chmod(path, 0o644)
+          try fails { _ = try files.read("../../outside") }
+          try expect(try Data(contentsOf: outside) == Data("protected".utf8), "protected target unchanged")
+        }
+      }),
+      ("administrator snapshot accepts sealed fixture and rejects replaced or resealed helper before execution", {
+        try withDirectory { directory in
+          let app = directory.appendingPathComponent("Fixture App.app")
+          let contents = app.appendingPathComponent("Contents")
+          let macos = contents.appendingPathComponent("MacOS")
+          try FileManager.default.createDirectory(at: macos, withIntermediateDirectories: true)
+          let main = macos.appendingPathComponent("Gui")
+          let helper = macos.appendingPathComponent("EntomaProxyHelper")
+          func compile(_ output: URL, marker: String) throws {
+            let source = directory.appendingPathComponent("fixture.c")
+            try "#include <stdio.h>\nint main(void) { puts(\"\(marker)\"); return 0; }\n".write(to: source, atomically: true, encoding: .utf8)
+            let task = Process(); task.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+            task.arguments = ["clang", source.path, "-o", output.path]
+            try task.run(); task.waitUntilExit(); try expect(task.terminationStatus == 0, "compile owned fixture")
+          }
+          try compile(main, marker: "GUI")
+          try compile(helper, marker: "APPROVED")
+          let info: [String: Any] = ["CFBundleIdentifier": ProxyHelperIdentity.appIdentifier,
+            "CFBundleExecutable": "Gui", "CFBundlePackageType": "APPL", "CFBundleVersion": "1"]
+          try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
+          func sign(_ path: URL, identifier: String) throws {
+            let task = Process(); task.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            task.arguments = ["--force", "--options", "runtime", "--sign", "-", "--identifier", identifier, path.path]
+            task.standardOutput = FileHandle.nullDevice; task.standardError = FileHandle.nullDevice
+            try task.run(); task.waitUntilExit()
+            try expect(task.terminationStatus == 0, "fixture sign")
+          }
+          try sign(helper, identifier: ProxyHelperIdentity.helperIdentifier)
+          try sign(app, identifier: ProxyHelperIdentity.appIdentifier)
+          let pins = try ProxyHelperIdentity.hashes(at: app, identifier: ProxyHelperIdentity.appIdentifier)
+          let requirement = try ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.appIdentifier, hashes: pins)
+          let command = ProxyHelperClient.installationCommand(app: app.path, requirement: requirement, operation: "--uninstall", hashes: pins)
+          func run() throws -> Int32 {
+            let task = Process(); task.executableURL = URL(fileURLWithPath: "/bin/sh"); task.arguments = ["-c", command]
+            let output = Pipe(); task.standardOutput = output; task.standardError = output
+            try task.run()
+            let result = output.fileHandleForReading.readDataToEndOfFile(); task.waitUntilExit()
+            if task.terminationStatus != 0 { print("snapshot fixture output: " + (String(data: result, encoding: .utf8) ?? "invalid")) }
+            return task.terminationStatus
+          }
+          // Only the source-built puts/return fixture can run, never Entoma
+          // management code, an administrator prompt or an OS network write.
+          try expect(run() == 0, "sealed approved fixture can execute")
+          try FileManager.default.removeItem(at: helper)
+          try compile(helper, marker: "REPLACED")
+          try sign(helper, identifier: ProxyHelperIdentity.helperIdentifier)
+          try expect(run() != 0, "changed nested code rejected before execution")
+          try sign(app, identifier: ProxyHelperIdentity.appIdentifier)
+          try expect(run() != 0, "new ad-hoc app with same ID still rejected by captured pin")
+        }
+      }),
+      ("administrator command quoting treats hostile paths as data", {
+        for value in ["plain", "a'b", "$(touch /tmp/not-a-command)", "a\nb", "a\"b"] {
+          let child = Process(); let output = Pipe()
+          child.executableURL = URL(fileURLWithPath: "/bin/sh")
+          child.arguments = ["-c", "printf %s " + ProxyHelperClient.shellQuote(value)]
+          child.standardOutput = output
+          try child.run()
+          let data = output.fileHandleForReading.readDataToEndOfFile(); child.waitUntilExit()
+          try expect(child.terminationStatus == 0 && String(data: data, encoding: .utf8) == value, "shell quoting round trip")
+        }
+      }),
+      ("unknown administrator uninstall preserves restoration protection and cancellation remains explicit", {
+        if #available(macOS 13.0, *) {
+          let fixture = LocalIPCFixture(mode: .normal); defer { fixture.close() }
+          var calls: [String] = []
+          let client = fixture.client(management: { calls.append($0); throw ProxyHelperFailure.unavailable })
+          do { _ = try client.unregister(); throw Failure.assertion("unknown uninstall accepted") }
+          catch ProxyHelperFailure.operationUnknown {}
+          try expect(calls == ["--uninstall"] && client.needsRestoration, "unknown maintenance cannot release core safety")
+          let cancelled = fixture.client(management: { _ in throw ProxyHelperFailure.authorizationCancelled })
+          do { _ = try cancelled.unregister(); throw Failure.assertion("cancellation accepted") }
+          catch ProxyHelperFailure.authorizationCancelled {}
         }
       }),
       ("real anonymous XPC status apply restore acknowledgement", {

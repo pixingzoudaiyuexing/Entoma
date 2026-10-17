@@ -30,7 +30,7 @@ class _ProxyHelperItemState extends State<ProxyHelperItem> {
       if (mounted)
         setState(() => message = switch (status['registration']) {
               'enabled' => '系统代理服务已启用',
-              'requiresApproval' => '请在系统设置中允许 Entoma 后重试',
+              'updateRequired' => '应用已更新，请更新系统代理服务',
               'notRegistered' => '系统代理服务尚未启用',
               _ => '请检查系统代理服务状态',
             });
@@ -45,17 +45,17 @@ class _ProxyHelperItemState extends State<ProxyHelperItem> {
   Widget build(BuildContext context) => ListItem(
       title: const Text('系统代理服务'),
       subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(message ?? '首次启用需要系统确认；之后通过受限服务管理系统代理。'),
+        Text(message ?? '首次安装或更新需要管理员授权；日常开关无需重复输入密码。'),
         Wrap(children: [
           TextButton(
               onPressed: pending ? null : () => action(proxy!.registerHelper),
-              child: const Text('启用')),
+              child: const Text('安装／更新')),
           TextButton(
               onPressed: pending ? null : () => action(proxy!.helperStatus),
               child: const Text('检查状态')),
           TextButton(
               onPressed: pending ? null : () => action(proxy!.unregisterHelper),
-              child: const Text('停用')),
+              child: const Text('卸载')),
         ]),
       ]));
 }

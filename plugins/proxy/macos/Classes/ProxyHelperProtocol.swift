@@ -2,6 +2,7 @@ import Foundation
 import Security
 
 enum ProxyHelperFailure: String, Error {
+  case authorizationCancelled = "NETWORK_PERMISSION_CANCELLED"
   case signingRequired = "HELPER_SIGNING_REQUIRED"
   case unsupported = "HELPER_REQUIRES_MACOS_13"
   case missing = "HELPER_NOT_FOUND"
@@ -31,57 +32,74 @@ enum ProxyHelperIdentity {
   static let helperIdentifier = "com.entoma.client.proxy-helper"
   static let serviceName = "com.entoma.client.proxy-helper"
   static let plistName = "com.entoma.client.proxy-helper.plist"
-  static let protocolVersion = 1
+  static let protocolVersion = 2
+  #if arch(arm64)
+  static let architecture = "arm64"
+  #else
+  static let architecture = "x86_64"
+  #endif
 
-  static func requirement(identifier: String, team: String) throws -> String {
-    guard [appIdentifier, helperIdentifier].contains(identifier),
-          team.count == 10, team.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) }) else {
-      throw ProxyHelperFailure.signingRequired
-    }
-    // The team is derived from our own valid signature, not a peer-supplied
-    // string. Apple generic anchor + Team ID + exact ID rejects ad-hoc clients.
-    let value = "anchor apple generic and identifier \"\(identifier)\" and certificate leaf[subject.OU] = \"\(team)\" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and !entitlement[\"com.apple.security.get-task-allow\"] exists and !entitlement[\"com.apple.security.cs.disable-library-validation\"] exists and !entitlement[\"com.apple.security.cs.allow-dyld-environment-variables\"] exists"
-    var requirement: SecRequirement?
-    guard SecRequirementCreateWithString(value as CFString, [], &requirement) == errSecSuccess,
-          requirement != nil else { throw ProxyHelperFailure.signingRequired }
+  // Pin the code approved at installation, including local ad-hoc signatures.
+  // An identifier or path alone is forgeable. Updates refresh these pins only
+  // through the administrator-authorized installer, never through an RPC.
+  static func requirement(identifier: String, hashes: [String]) throws -> String {
+    guard [appIdentifier, helperIdentifier].contains(identifier), !hashes.isEmpty,
+          hashes.count <= 8, hashes.allSatisfy({ $0.count == 40 && $0.utf8.allSatisfy({
+            (48...57).contains($0) || (97...102).contains($0)
+          }) }) else { throw ProxyHelperFailure.identityRejected }
+    let pins = hashes.map { "cdhash H\"\($0)\"" }.joined(separator: " or ")
+    // Local ad-hoc Flutter must load its signed bundle dylibs without a Team ID.
+    // Only the unprivileged GUI may disable library validation; the root helper
+    // never may. Both retain hardened runtime, no debug attach/DYLD env opt-in.
+    let libraryRule = identifier == helperIdentifier
+      ? " and !entitlement[\"com.apple.security.cs.disable-library-validation\"] exists" : ""
+    let value = "identifier \"\(identifier)\" and (\(pins)) and !entitlement[\"com.apple.security.get-task-allow\"] exists and !entitlement[\"com.apple.security.cs.allow-dyld-environment-variables\"] exists" + libraryRule
+    var parsed: SecRequirement?
+    guard SecRequirementCreateWithString(value as CFString, [], &parsed) == errSecSuccess,
+          parsed != nil else { throw ProxyHelperFailure.identityRejected }
     return value
   }
 
-  /// No Keychain query: inspect the running process's public code signature.
-  static func ownTeam(expectedIdentifier: String) throws -> String {
-    var code: SecCode?
+  static func hashes(at url: URL, identifier: String) throws -> [String] {
+    var full: SecStaticCode?
+    guard SecStaticCodeCreateWithPath(url as CFURL, [], &full) == errSecSuccess,
+          let full = full,
+          SecStaticCodeCheckValidity(full, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate), nil) == errSecSuccess else {
+      throw ProxyHelperFailure.identityRejected
+    }
+    var hashes = Set<String>()
+    for architecture in ["arm64", "x86_64"] {
+      var code: SecStaticCode?
+      let attributes = [kSecCodeAttributeArchitecture as String: architecture] as CFDictionary
+      guard SecStaticCodeCreateWithPathAndAttributes(url as CFURL, [], attributes, &code) == errSecSuccess,
+            let code = code else { continue }
+      var raw: CFDictionary?
+      guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &raw) == errSecSuccess,
+            let info = raw as? [String: Any], info[kSecCodeInfoIdentifier as String] as? String == identifier,
+            let flags = info[kSecCodeInfoFlags as String] as? NSNumber,
+            flags.uint32Value & UInt32(SecCodeSignatureFlags.runtime.rawValue) != 0,
+            let hash = info[kSecCodeInfoUnique as String] as? Data else { throw ProxyHelperFailure.identityRejected }
+      hashes.insert(hash.map { String(format: "%02x", $0) }.joined())
+    }
+    let values = hashes.sorted()
+    let expression = try requirement(identifier: identifier, hashes: values)
+    var parsed: SecRequirement?
+    guard SecRequirementCreateWithString(expression as CFString, [], &parsed) == errSecSuccess,
+          SecStaticCodeCheckValidity(full, SecCSFlags(rawValue: kSecCSCheckAllArchitectures), parsed) == errSecSuccess else {
+      throw ProxyHelperFailure.identityRejected
+    }
+    return values
+  }
+
+  static func runningHash(identifier: String) throws -> String {
+    var code: SecCode?; var staticCode: SecStaticCode?; var raw: CFDictionary?
     guard SecCodeCopySelf([], &code) == errSecSuccess, let code = code,
-          SecCodeCheckValidity(code, [], nil) == errSecSuccess else {
-      throw ProxyHelperFailure.signingRequired
-    }
-    var staticCode: SecStaticCode?
-    guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode = staticCode else {
-      throw ProxyHelperFailure.signingRequired
-    }
-    var raw: CFDictionary?
-    guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &raw) == errSecSuccess,
-          let info = raw as? [String: Any],
-          let identifier = info[kSecCodeInfoIdentifier as String] as? String,
-          identifier == expectedIdentifier,
-          let team = info[kSecCodeInfoTeamIdentifier as String] as? String,
-          let flags = info[kSecCodeInfoFlags as String] as? NSNumber,
-          flags.uint32Value & UInt32(SecCodeSignatureFlags.adhoc.rawValue) == 0,
-          flags.uint32Value & UInt32(SecCodeSignatureFlags.runtime.rawValue) != 0 else {
-      throw ProxyHelperFailure.signingRequired
-    }
-    let entitlements = info[kSecCodeInfoEntitlementsDict as String] as? [String: Any]
-    guard entitlements?["com.apple.security.get-task-allow"] as? Bool != true,
-          entitlements?["com.apple.security.cs.disable-library-validation"] as? Bool != true,
-          entitlements?["com.apple.security.cs.allow-dyld-environment-variables"] as? Bool != true else {
-      throw ProxyHelperFailure.signingRequired
-    }
-    let expression = try requirement(identifier: expectedIdentifier, team: team)
-    var requirement: SecRequirement?
-    guard SecRequirementCreateWithString(expression as CFString, [], &requirement) == errSecSuccess,
-          SecCodeCheckValidity(code, [], requirement) == errSecSuccess else {
-      throw ProxyHelperFailure.signingRequired
-    }
-    return team
+          SecCodeCheckValidity(code, [], nil) == errSecSuccess,
+          SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode = staticCode,
+          SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &raw) == errSecSuccess,
+          let info = raw as? [String: Any], info[kSecCodeInfoIdentifier as String] as? String == identifier,
+          let hash = info[kSecCodeInfoUnique as String] as? Data else { throw ProxyHelperFailure.identityRejected }
+    return hash.map { String(format: "%02x", $0) }.joined()
   }
 
   static func validate(port: Int, bypass: [String]) throws {
