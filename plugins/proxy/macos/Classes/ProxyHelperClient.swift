@@ -36,11 +36,13 @@ final class ProxyHelperClient {
 
   #if ENTOMA_HELPER_TESTING
   private var fixtureMode = false
+  private var fixtureManagement: ((String) throws -> Void)?
   // Anonymous, unprivileged local IPC only. Absent from the application build.
-  init(fixtureConnection: NSXPCConnection, timeout: TimeInterval) {
+  init(fixtureConnection: NSXPCConnection, timeout: TimeInterval, management: ((String) throws -> Void)? = nil) {
     connection = fixtureConnection
     operationTimeout = timeout
     fixtureMode = true
+    fixtureManagement = management
   }
   #endif
 
@@ -73,8 +75,14 @@ final class ProxyHelperClient {
     // A failed/old-identity RPC cannot bypass restoration: the authorized root
     // installer must stop the old job and recover its journal before publishing.
     connection?.invalidate(); connection = nil
-    try administrator(operation: "--install")
-    return try registrationStatus() // Actual authenticated daemon reply required.
+    do { try administrator(operation: "--install") }
+    catch ProxyHelperFailure.authorizationCancelled { throw ProxyHelperFailure.authorizationCancelled }
+    catch { needsRestoration = true; throw ProxyHelperFailure.operationUnknown }
+    needsRestoration = true
+    let installed = try registrationStatus() // Actual authenticated daemon reply required.
+    guard installed["available"] as? Bool == true else { needsRestoration = true; throw ProxyHelperFailure.operationUnknown }
+    needsRestoration = installed["restorationPending"] as? Bool != false
+    return installed
   }
 
   func unregister() throws -> NSDictionary {
@@ -84,7 +92,10 @@ final class ProxyHelperClient {
     if let prepared = try? request({ $0.prepareUnregister(reply: $1) }),
        prepared["restorationPending"] as? Bool == false,
        prepared["owned"] as? Bool == false { needsRestoration = false }
-    try administrator(operation: "--uninstall")
+    do { try administrator(operation: "--uninstall") }
+    catch ProxyHelperFailure.authorizationCancelled { throw ProxyHelperFailure.authorizationCancelled }
+    catch { needsRestoration = true; throw ProxyHelperFailure.operationUnknown }
+    needsRestoration = true
     connection?.invalidate(); connection = nil
     let status = try registrationStatus()
     guard status["registration"] as? String == "notRegistered" else { throw ProxyHelperFailure.unavailable }
@@ -93,6 +104,9 @@ final class ProxyHelperClient {
   }
 
   private func administrator(operation: String) throws {
+    #if ENTOMA_HELPER_TESTING
+    if fixtureMode, let management = fixtureManagement { try management(operation); return }
+    #endif
     guard ["--install", "--uninstall"].contains(operation) else { throw ProxyHelperFailure.invalidInput }
     let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/EntomaProxyHelper")
     let runningHash = try ProxyHelperIdentity.runningHash(identifier: ProxyHelperIdentity.appIdentifier)

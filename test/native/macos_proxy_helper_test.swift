@@ -145,11 +145,11 @@ private final class LocalIPCFixture: NSObject, NSXPCListenerDelegate, ProxyHelpe
   func restoreProxy(reply: @escaping (NSDictionary?, String?) -> Void) { owned = false; respond(reply) }
   func prepareUnregister(reply: @escaping (NSDictionary?, String?) -> Void) { owned = false; respond(reply) }
   @available(macOS 13.0, *)
-  func client(timeout: TimeInterval = 2) -> ProxyHelperClient {
+  func client(timeout: TimeInterval = 2, management: ((String) throws -> Void)? = nil) -> ProxyHelperClient {
     let connection = NSXPCConnection(listenerEndpoint: listener.endpoint)
     connection.remoteObjectInterface = NSXPCInterface(with: ProxyHelperProtocol.self)
     connection.resume()
-    return ProxyHelperClient(fixtureConnection: connection, timeout: timeout)
+    return ProxyHelperClient(fixtureConnection: connection, timeout: timeout, management: management)
   }
   func close() {
     listener.invalidate()
@@ -361,6 +361,19 @@ private enum ProxyHelperTests {
           try child.run()
           let data = output.fileHandleForReading.readDataToEndOfFile(); child.waitUntilExit()
           try expect(child.terminationStatus == 0 && String(data: data, encoding: .utf8) == value, "shell quoting round trip")
+        }
+      }),
+      ("unknown administrator uninstall preserves restoration protection and cancellation remains explicit", {
+        if #available(macOS 13.0, *) {
+          let fixture = LocalIPCFixture(mode: .normal); defer { fixture.close() }
+          var calls: [String] = []
+          let client = fixture.client(management: { calls.append($0); throw ProxyHelperFailure.unavailable })
+          do { _ = try client.unregister(); throw Failure.assertion("unknown uninstall accepted") }
+          catch ProxyHelperFailure.operationUnknown {}
+          try expect(calls == ["--uninstall"] && client.needsRestoration, "unknown maintenance cannot release core safety")
+          let cancelled = fixture.client(management: { _ in throw ProxyHelperFailure.authorizationCancelled })
+          do { _ = try cancelled.unregister(); throw Failure.assertion("cancellation accepted") }
+          catch ProxyHelperFailure.authorizationCancelled {}
         }
       }),
       ("real anonymous XPC status apply restore acknowledgement", {
