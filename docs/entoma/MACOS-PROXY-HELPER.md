@@ -31,7 +31,7 @@ Entoma继续使用已有NSXPC代理协议及SystemConfiguration，不开放通�
 
 - 安装时将当前获准架构的确切App和Helper代码hash固定到root拥有的receipt；不是只信任包名、路径或同UID。
 - NSXPC listener和connection使用macOS13公开code-signing-requirement API验证每条消息的真实代码身份；GUI对服务端同样校验。
-- 允许有效ad-hoc签名，但拒绝get-task-allow、disable-library-validation、allow-dyld-environment-variables等可削弱进程身份的权限。
+- 允许有效ad-hoc签名；App和Helper都保留hardened runtime，拒绝get-task-allow和allow-dyld-environment-variables。本地ad-hoc Flutter App因无Team ID必须用LocalHelper.entitlements明确允许其动态库加载；此例外只给非特权GUI，root Helper仍拒绝disable-library-validation。使用付费签名身份时不添加此本地例外。安装后root文件/单pin、有限RPC边界不变；不把本地GUI对库加载的信任描述成生产签名隔离。
 - daemon只接受当前控制台用户。已建立会话在用户切换后仍可恢复其原网络事务，但不能发起新的apply。
 - 只安装与获准执行架构对应的Helper slice，不把universal包中未经当前运行身份确认的其他slice加入信任列表。App构建更新或切换执行架构导致hash变化时，需用户明确“安装／更新”并授权刷新pin；普通重启同一个包和日常代理开关不需要重新授权。这是本地adhoc测试的更新行为，不是额外证书体系。
 

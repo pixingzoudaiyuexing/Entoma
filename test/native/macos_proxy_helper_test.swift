@@ -209,6 +209,34 @@ private enum ProxyHelperTests {
         try fails { try ProxyHelperReceipt(version: 999, appHashes: hashes, helperHashes: hashes).validate() }
         try fails { try ProxyHelperReceipt(version: ProxyHelperIdentity.protocolVersion, appHashes: [hashes[0], String(repeating: "a", count: 40)], helperHashes: [hashes[0]]).validate() }
       }),
+      ("local ad-hoc GUI loads its dylib with explicit entitlement while root helper rejects that entitlement", {
+        try withDirectory { directory in
+          func run(_ arguments: [String]) throws -> Int32 {
+            let task = Process(); task.executableURL = URL(fileURLWithPath: arguments[0]); task.arguments = Array(arguments.dropFirst())
+            task.standardOutput = FileHandle.nullDevice; task.standardError = FileHandle.nullDevice
+            try task.run(); task.waitUntilExit(); return task.terminationStatus
+          }
+          let library = directory.appendingPathComponent("fixture.dylib")
+          let loader = directory.appendingPathComponent("loader")
+          let librarySource = directory.appendingPathComponent("library.c")
+          let loaderSource = directory.appendingPathComponent("loader.c")
+          try "int entoma_fixture(void) { return 42; }\n".write(to: librarySource, atomically: true, encoding: .utf8)
+          try "#include <dlfcn.h>\nint main(int n,char **v) { void *p=dlopen(v[1],RTLD_NOW); if(!p) return 1; int (*f)(void)=dlsym(p,\"entoma_fixture\"); return !f || f()!=42; }\n".write(to: loaderSource, atomically: true, encoding: .utf8)
+          try expect(run(["/usr/bin/xcrun", "clang", "-dynamiclib", librarySource.path, "-o", library.path]) == 0, "owned dylib compile")
+          try expect(run(["/usr/bin/xcrun", "clang", loaderSource.path, "-o", loader.path]) == 0, "owned loader compile")
+          for target in [library, loader] {
+            try expect(run(["/usr/bin/codesign", "--force", "--options", "runtime", "--sign", "-", "--identifier", ProxyHelperIdentity.appIdentifier, target.path]) == 0, "ad-hoc runtime sign")
+          }
+          try expect(run([loader.path, library.path]) != 0, "without exception the ad-hoc team mismatch really fails")
+          let entitlements = directory.appendingPathComponent("local.entitlements")
+          try PropertyListSerialization.data(fromPropertyList: ["com.apple.security.cs.disable-library-validation": true], format: .xml, options: 0).write(to: entitlements)
+          try expect(run(["/usr/bin/codesign", "--force", "--options", "runtime", "--sign", "-", "--entitlements", entitlements.path, "--identifier", ProxyHelperIdentity.appIdentifier, loader.path]) == 0, "sign explicit local GUI permission")
+          try expect(run([loader.path, library.path]) == 0, "local GUI actually loads/executes owned dylib")
+          _ = try ProxyHelperIdentity.hashes(at: loader, identifier: ProxyHelperIdentity.appIdentifier)
+          try expect(run(["/usr/bin/codesign", "--force", "--options", "runtime", "--sign", "-", "--entitlements", entitlements.path, "--identifier", ProxyHelperIdentity.helperIdentifier, loader.path]) == 0, "root rejection fixture sign")
+          try fails { _ = try ProxyHelperIdentity.hashes(at: loader, identifier: ProxyHelperIdentity.helperIdentifier) }
+        }
+      }),
       ("real XPC authenticates approved ad-hoc code and rejects a wrong pin", {
         if #available(macOS 13.0, *) {
           let hashes = try ProxyHelperIdentity.hashes(at: URL(fileURLWithPath: CommandLine.arguments[0]), identifier: ProxyHelperIdentity.appIdentifier)

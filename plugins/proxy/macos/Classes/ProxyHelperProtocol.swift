@@ -48,7 +48,12 @@ enum ProxyHelperIdentity {
             (48...57).contains($0) || (97...102).contains($0)
           }) }) else { throw ProxyHelperFailure.identityRejected }
     let pins = hashes.map { "cdhash H\"\($0)\"" }.joined(separator: " or ")
-    let value = "identifier \"\(identifier)\" and (\(pins)) and !entitlement[\"com.apple.security.get-task-allow\"] exists and !entitlement[\"com.apple.security.cs.disable-library-validation\"] exists and !entitlement[\"com.apple.security.cs.allow-dyld-environment-variables\"] exists"
+    // Local ad-hoc Flutter must load its signed bundle dylibs without a Team ID.
+    // Only the unprivileged GUI may disable library validation; the root helper
+    // never may. Both retain hardened runtime, no debug attach/DYLD env opt-in.
+    let libraryRule = identifier == helperIdentifier
+      ? " and !entitlement[\"com.apple.security.cs.disable-library-validation\"] exists" : ""
+    let value = "identifier \"\(identifier)\" and (\(pins)) and !entitlement[\"com.apple.security.get-task-allow\"] exists and !entitlement[\"com.apple.security.cs.allow-dyld-environment-variables\"] exists" + libraryRule
     var parsed: SecRequirement?
     guard SecRequirementCreateWithString(value as CFString, [], &parsed) == errSecSuccess,
           parsed != nil else { throw ProxyHelperFailure.identityRejected }

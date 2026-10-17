@@ -51,8 +51,12 @@ install -m 755 "$ENTOMA_HELPER_OUTPUT/EntomaProxyHelper" "$ENTOMA_HELPER_APP/Con
 if [[ -f "$ENTOMA_HELPER_APP/Contents/Library/LaunchDaemons/com.entoma.client.proxy-helper.plist" ]]; then
   rm "$ENTOMA_HELPER_APP/Contents/Library/LaunchDaemons/com.entoma.client.proxy-helper.plist"
 fi
+ENTOMA_APP_ENTITLEMENTS="$ENTOMA_HELPER_ROOT/macos/Runner/Release.entitlements"
+if [[ "$ENTOMA_HELPER_SIGNING_IDENTITY" == - ]]; then
+  ENTOMA_APP_ENTITLEMENTS="$ENTOMA_HELPER_ROOT/macos/Runner/LocalHelper.entitlements"
+fi
 codesign --force --options runtime --sign "$ENTOMA_HELPER_SIGNING_IDENTITY" \
-  --entitlements "$ENTOMA_HELPER_ROOT/macos/Runner/Release.entitlements" \
+  --entitlements "$ENTOMA_APP_ENTITLEMENTS" \
   --identifier com.entoma.client "$ENTOMA_HELPER_APP"
 codesign --verify --strict --deep "$ENTOMA_HELPER_APP"
 printf '%s\n' 'Helper embedded and app signed; no service installed or administrator prompt requested.'

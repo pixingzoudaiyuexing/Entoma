@@ -15,3 +15,5 @@ Owner批准一次管理员安装launchd服务，允许本地ad-hoc签名；移�
 - 既有一键连接、UNKNOWN/外部修改、TUN与账户行为不变。
 
 测试/构建/实际设备结果与精确SHA随PR证据交付。未获Owner许可前不安装本机服务；未获Formal Independent Delta Review允许前不合并。无Release/生产部署。
+
+本地ad-hoc Flutter的dylib Team-ID不匹配已实际复现；仅本地GUI明确使用disable-library-validation，保留hardened runtime且无debug/DYLD环境放行。root Helper始终禁止此例外。审核须覆盖这一被代码pin固定的本地GUI信任边界；付费证书仍不是开发前置。对应真实dlopen失败→成功和root身份拒绝回归已加入。
