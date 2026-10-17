@@ -10,11 +10,9 @@ if [[ "$ENTOMA_HELPER_MODE" != --compile-only && "$ENTOMA_HELPER_MODE" != --embe
   exit 2
 fi
 if [[ "$ENTOMA_HELPER_MODE" == --embed ]]; then
-  : "${ENTOMA_HELPER_SIGNING_IDENTITY:?Developer ID Application identity required; no ad-hoc helper installation}"
-  : "${ENTOMA_HELPER_TEAM_ID:?Apple Team ID required}"
-  [[ "$ENTOMA_HELPER_SIGNING_IDENTITY" == 'Developer ID Application: '* && "$ENTOMA_HELPER_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || exit 2
   [[ -d "$ENTOMA_HELPER_APP/Contents/MacOS" ]] || exit 2
 fi
+ENTOMA_HELPER_SIGNING_IDENTITY="${ENTOMA_HELPER_SIGNING_IDENTITY:--}"
 mkdir -p "$ENTOMA_HELPER_OUTPUT"
 ENTOMA_HELPER_OUTPUT="$(cd -- "$ENTOMA_HELPER_OUTPUT" && pwd)"
 ENTOMA_HELPER_CACHE="${CLANG_MODULE_CACHE_PATH:-${TMPDIR:-/tmp}/entoma-helper-module-cache}"
@@ -22,6 +20,8 @@ mkdir -p "$ENTOMA_HELPER_CACHE"
 ENTOMA_HELPER_SOURCES=(
   "$ENTOMA_HELPER_ROOT/plugins/proxy/macos/Classes/OwnedNetworkSettings.swift"
   "$ENTOMA_HELPER_ROOT/plugins/proxy/macos/Classes/ProxyHelperProtocol.swift"
+  "$ENTOMA_HELPER_ROOT/plugins/proxy/macos/Classes/ProxyHelperInstallation.swift"
+  "$ENTOMA_HELPER_ROOT/macos/ProxyHelper/ProxyHelperServiceManager.swift"
   "$ENTOMA_HELPER_ROOT/macos/ProxyHelper/SecureProxyJournal.swift"
   "$ENTOMA_HELPER_ROOT/macos/ProxyHelper/RootNetworkSettingsBackend.swift"
   "$ENTOMA_HELPER_ROOT/macos/ProxyHelper/ProxyHelperCoordinator.swift"
@@ -40,12 +40,19 @@ if [[ "$ENTOMA_HELPER_MODE" == --compile-only ]]; then
   printf '%s\n' 'Helper compiled only; no Developer ID signing, registration, installation or OS network writes.'
   exit 0
 fi
-codesign --force --options runtime --timestamp --sign "$ENTOMA_HELPER_SIGNING_IDENTITY" \
+# Local development uses a valid ad-hoc signature. Administrator installation
+# pins this exact build; no paid certificate or certificate enrollment is needed.
+codesign --force --options runtime --sign "$ENTOMA_HELPER_SIGNING_IDENTITY" \
   --identifier com.entoma.client.proxy-helper "$ENTOMA_HELPER_OUTPUT/EntomaProxyHelper"
-ENTOMA_HELPER_REQUIREMENT="anchor apple generic and identifier \"com.entoma.client.proxy-helper\" and certificate leaf[subject.OU] = \"$ENTOMA_HELPER_TEAM_ID\" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
-codesign --verify --strict -R "$ENTOMA_HELPER_REQUIREMENT" "$ENTOMA_HELPER_OUTPUT/EntomaProxyHelper"
-mkdir -p "$ENTOMA_HELPER_APP/Contents/Library/LaunchDaemons"
+codesign --verify --strict "$ENTOMA_HELPER_OUTPUT/EntomaProxyHelper"
 install -m 755 "$ENTOMA_HELPER_OUTPUT/EntomaProxyHelper" "$ENTOMA_HELPER_APP/Contents/MacOS/EntomaProxyHelper"
-install -m 644 "$ENTOMA_HELPER_ROOT/macos/ProxyHelper/com.entoma.client.proxy-helper.plist" \
-  "$ENTOMA_HELPER_APP/Contents/Library/LaunchDaemons/com.entoma.client.proxy-helper.plist"
-printf '%s\n' 'Signed helper embedded only; sign the enclosing app and notarize before registration. No service installed.'
+# launchd's installed plist is generated from fixed fields by the administrator
+# installer. Do not retain the superseded SMAppService BundleProgram resource.
+if [[ -f "$ENTOMA_HELPER_APP/Contents/Library/LaunchDaemons/com.entoma.client.proxy-helper.plist" ]]; then
+  rm "$ENTOMA_HELPER_APP/Contents/Library/LaunchDaemons/com.entoma.client.proxy-helper.plist"
+fi
+codesign --force --options runtime --sign "$ENTOMA_HELPER_SIGNING_IDENTITY" \
+  --entitlements "$ENTOMA_HELPER_ROOT/macos/Runner/Release.entitlements" \
+  --identifier com.entoma.client "$ENTOMA_HELPER_APP"
+codesign --verify --strict --deep "$ENTOMA_HELPER_APP"
+printf '%s\n' 'Helper embedded and app signed; no service installed or administrator prompt requested.'

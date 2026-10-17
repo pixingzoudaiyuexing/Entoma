@@ -1,5 +1,5 @@
 import Foundation
-import ServiceManagement
+import Security
 
 private final class ProxyHelperReply {
   private let lock = NSLock()
@@ -44,52 +44,99 @@ final class ProxyHelperClient {
   }
   #endif
 
-  private func service() throws -> SMAppService {
-    _ = try ProxyHelperIdentity.ownTeam(expectedIdentifier: ProxyHelperIdentity.appIdentifier)
-    guard Bundle.main.url(forResource: "com.entoma.client.proxy-helper", withExtension: "plist",
-                          subdirectory: "Contents/Library/LaunchDaemons") != nil ||
-          FileManager.default.fileExists(atPath: Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Library/LaunchDaemons/\(ProxyHelperIdentity.plistName)").path) else {
-      throw ProxyHelperFailure.missing
-    }
-    return SMAppService.daemon(plistName: ProxyHelperIdentity.plistName)
+  private func receipt() throws -> ProxyHelperReceipt {
+    let receipt = try ProxyHelperReceipt.installed()
+    let own = try ProxyHelperIdentity.hashes(at: Bundle.main.bundleURL, identifier: ProxyHelperIdentity.appIdentifier)
+    let running = try ProxyHelperIdentity.runningHash(identifier: ProxyHelperIdentity.appIdentifier)
+    guard receipt.appHashes == [running], own.contains(running) else { throw ProxyHelperFailure.identityRejected }
+    return receipt
   }
 
   func registrationStatus() throws -> NSDictionary {
-    let service = try self.service()
-    return ["available": service.status == .enabled, "registration": registrationName(service.status),
-            "protocolVersion": ProxyHelperIdentity.protocolVersion]
+    do { _ = try receipt() }
+    catch ProxyHelperFailure.missing {
+      return ["available": false, "registration": "notRegistered", "protocolVersion": ProxyHelperIdentity.protocolVersion]
+    } catch ProxyHelperFailure.identityRejected {
+      return ["available": false, "registration": "updateRequired", "protocolVersion": ProxyHelperIdentity.protocolVersion]
+    }
+    let observed = try status(port: 17890, bypass: [])
+    return ["available": true, "registration": "enabled", "protocolVersion": ProxyHelperIdentity.protocolVersion,
+            "restorationPending": observed["restorationPending"] ?? true, "draining": observed["draining"] ?? true]
   }
 
   func register() throws -> NSDictionary {
-    let service = try self.service()
-    if service.status == .notRegistered || service.status == .notFound { try service.register() }
-    // Register returning successfully is not approval or proof of a running
-    // daemon. The UI must show requiresApproval and let the user approve it.
-    return try registrationStatus()
+    // No installer is invoked by status(), startup or apply(). Only an explicit
+    // user installation/update action can request administrator authorization.
+    if let current = try? registrationStatus(), current["available"] as? Bool == true,
+       current["draining"] as? Bool == false { return current }
+    if needsRestoration { _ = try? restore() }
+    // A failed/old-identity RPC cannot bypass restoration: the authorized root
+    // installer must stop the old job and recover its journal before publishing.
+    connection?.invalidate(); connection = nil
+    try administrator(operation: "--install")
+    return try registrationStatus() // Actual authenticated daemon reply required.
   }
 
   func unregister() throws -> NSDictionary {
-    let service = try self.service()
-    if service.status == .notRegistered {
-      guard !needsRestoration else { throw ProxyHelperFailure.restoreFailed }
-      return try registrationStatus()
-    }
-    guard service.status == .enabled else { throw ProxyHelperFailure.approvalRequired }
-    let prepared = try request { $0.prepareUnregister(reply: $1) }
-    guard prepared["restorationPending"] as? Bool == false,
-          prepared["owned"] as? Bool == false else { throw ProxyHelperFailure.restoreFailed }
-    // SMAppService.unregister can kill a daemon: restoration must have been
-    // acknowledged first, and the daemon has stopped accepting new apply calls.
-    needsRestoration = false
-    let completion = ProxyHelperReply()
-    service.unregister { error in
-      if error != nil { completion.complete(.failure(ProxyHelperFailure.unavailable)) }
-      else { completion.complete(.success(["protocolVersion": ProxyHelperIdentity.protocolVersion])) }
-    }
-    _ = try completion.wait(seconds: operationTimeout)
+    // An updated App may no longer satisfy the old daemon's pin. A failed XPC
+    // drain does not make privileged uninstall unreachable: the administrator
+    // path independently stops the service and proves journal restoration.
+    if let prepared = try? request({ $0.prepareUnregister(reply: $1) }),
+       prepared["restorationPending"] as? Bool == false,
+       prepared["owned"] as? Bool == false { needsRestoration = false }
+    try administrator(operation: "--uninstall")
     connection?.invalidate(); connection = nil
-    return try registrationStatus()
+    let status = try registrationStatus()
+    guard status["registration"] as? String == "notRegistered" else { throw ProxyHelperFailure.unavailable }
+    needsRestoration = false
+    return status
+  }
+
+  private func administrator(operation: String) throws {
+    guard ["--install", "--uninstall"].contains(operation) else { throw ProxyHelperFailure.invalidInput }
+    let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/EntomaProxyHelper")
+    let runningHash = try ProxyHelperIdentity.runningHash(identifier: ProxyHelperIdentity.appIdentifier)
+    let appHashes = try ProxyHelperIdentity.hashes(at: Bundle.main.bundleURL, identifier: ProxyHelperIdentity.appIdentifier)
+    guard appHashes.contains(runningHash) else { throw ProxyHelperFailure.identityRejected }
+    let appRequirement = try ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.appIdentifier, hashes: [runningHash])
+    _ = try ProxyHelperIdentity.hashes(at: helper, identifier: ProxyHelperIdentity.helperIdentifier)
+    // The authorized shell executes only a root-private sealed app snapshot,
+    // pinned to this running GUI. Separate mutable-path helper checks are not
+    // sufficient: the app's nested-code seal must bind the actual root program.
+    let shell = Self.installationCommand(app: Bundle.main.bundleURL.path, requirement: appRequirement,
+      operation: operation, hashes: [runningHash])
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    task.arguments = ["-e", "on run argv\ndo shell script (item 1 of argv) with administrator privileges with prompt (item 2 of argv)\nend run", shell, "Entoma 安装、更新或卸载系统代理服务"]
+    task.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+    task.standardOutput = FileHandle.nullDevice
+    let errors = Pipe(); task.standardError = errors
+    try task.run()
+    let bytes = errors.fileHandleForReading.readDataToEndOfFile()
+    task.waitUntilExit()
+    guard task.terminationStatus == 0 else {
+      if String(data: bytes, encoding: .utf8)?.contains("(-128)") == true { throw ProxyHelperFailure.authorizationCancelled }
+      throw ProxyHelperFailure.unavailable
+    }
+  }
+
+  static func installationCommand(app: String, requirement: String, operation: String, hashes: [String]) -> String {
+    let arguments = operation == "--install"
+      ? [operation, hashes.joined(separator: ",")] : [operation]
+    let installArguments = operation == "--install"
+      ? Self.shellQuote(arguments[0]) + " \"$stage/Entoma.app\" " + Self.shellQuote(arguments[1])
+      : Self.shellQuote(operation)
+    let architecture = ProxyHelperIdentity.architecture
+    return "umask 077; cd /; set -eu; " +
+      "stage=$(/usr/bin/mktemp -d /private/var/tmp/entoma-proxy-install.XXXXXXXX); " +
+      "trap '/bin/rm -rf -- \"$stage\"' EXIT; " +
+      "/usr/bin/ditto --noqtn " + Self.shellQuote(app) + " \"$stage/Entoma.app\"; " +
+      "/usr/bin/codesign --verify --deep --strict --architecture " + architecture + " -R " + Self.shellQuote("=" + requirement) + " \"$stage/Entoma.app\"; " +
+      "/usr/bin/arch -" + architecture + " \"$stage/Entoma.app/Contents/MacOS/EntomaProxyHelper\" " + installArguments
+  }
+
+  static func shellQuote(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
   }
 
   func status(port: Int, bypass: [String]) throws -> NSDictionary {
@@ -122,18 +169,11 @@ final class ProxyHelperClient {
       return connection
     }
     #endif
-    let service = try self.service()
-    switch service.status {
-    case .enabled: break
-    case .requiresApproval: throw ProxyHelperFailure.approvalRequired
-    case .notRegistered, .notFound: throw ProxyHelperFailure.missing
-    @unknown default: throw ProxyHelperFailure.unavailable
-    }
+    let receipt = try self.receipt()
     if let value = connection { return value }
-    let team = try ProxyHelperIdentity.ownTeam(expectedIdentifier: ProxyHelperIdentity.appIdentifier)
     let value = NSXPCConnection(machServiceName: ProxyHelperIdentity.serviceName, options: .privileged)
     value.remoteObjectInterface = NSXPCInterface(with: ProxyHelperProtocol.self)
-    value.setCodeSigningRequirement(try ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.helperIdentifier, team: team))
+    value.setCodeSigningRequirement(try receipt.helperRequirement)
     value.resume()
     connection = value
     return value
@@ -171,16 +211,6 @@ final class ProxyHelperClient {
       connection.invalidate()
       self.connection = nil
       throw error
-    }
-  }
-
-  private func registrationName(_ status: SMAppService.Status) -> String {
-    switch status {
-    case .notRegistered: return "notRegistered"
-    case .enabled: return "enabled"
-    case .requiresApproval: return "requiresApproval"
-    case .notFound: return "notFound"
-    @unknown default: return "unknown"
     }
   }
 

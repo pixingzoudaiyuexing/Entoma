@@ -81,6 +81,7 @@ jobs:
         if: matrix.platform == 'macos'
         run: |
           mkdir -p dist
+          bash tool/build_macos_proxy_helper.sh --embed "$RUNNER_TEMP/entoma-helper" build/macos/Build/Products/Release/Entoma.app
           ENTOMA_PACKAGE_STAGE="$(mktemp -d)"
           pkgbuild --component build/macos/Build/Products/Release/Entoma.app --install-location /Applications --identifier com.entoma.client --version 0.1.0 "$ENTOMA_PACKAGE_STAGE/Entoma-component.pkg"
           productbuild --product packaging/macos/requirements.plist --package "$ENTOMA_PACKAGE_STAGE/Entoma-component.pkg" dist/Entoma-0.1.0-macos.pkg
