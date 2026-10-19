@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <!-- Local ad-hoc Flutter libraries have no Developer Team ID. Keep hardened
+       runtime and DYLD/debug restrictions; allow their sealed bundle libraries. -->
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict></plist>

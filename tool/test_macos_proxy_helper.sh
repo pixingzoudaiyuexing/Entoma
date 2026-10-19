@@ -8,6 +8,9 @@ mkdir -p "$ENTOMA_HELPER_TEST_CACHE"
 xcrun swiftc -swift-version 5 -D ENTOMA_HELPER_TESTING -module-cache-path "$ENTOMA_HELPER_TEST_CACHE" \
   "$ENTOMA_HELPER_TEST_ROOT/plugins/proxy/macos/Classes/OwnedNetworkSettings.swift" \
   "$ENTOMA_HELPER_TEST_ROOT/plugins/proxy/macos/Classes/ProxyHelperProtocol.swift" \
+  "$ENTOMA_HELPER_TEST_ROOT/plugins/proxy/macos/Classes/ProxyHelperInstallation.swift" \
+  "$ENTOMA_HELPER_TEST_ROOT/macos/ProxyHelper/ProxyHelperServiceManager.swift" \
+  "$ENTOMA_HELPER_TEST_ROOT/macos/ProxyHelper/RootNetworkSettingsBackend.swift" \
   "$ENTOMA_HELPER_TEST_ROOT/plugins/proxy/macos/Classes/ProxyHelperClient.swift" \
   "$ENTOMA_HELPER_TEST_ROOT/macos/ProxyHelper/SecureProxyJournal.swift" \
   "$ENTOMA_HELPER_TEST_ROOT/macos/ProxyHelper/ProxyHelperCoordinator.swift" \
@@ -15,7 +18,7 @@ xcrun swiftc -swift-version 5 -D ENTOMA_HELPER_TESTING -module-cache-path "$ENTO
   -framework Foundation -framework Security -framework ServiceManagement \
   -o "$ENTOMA_HELPER_TEST_DIR/proxy-helper-tests"
 # This is our source-built, uninstalled fixture, not the daemon. Give it the real
-# GUI identifier so unsigned rejection cannot pass merely due to a wrong ID.
+# GUI identifier so pinned ad-hoc acceptance exercises the real identity.
 codesign --force --options runtime --sign - --identifier com.entoma.client \
   "$ENTOMA_HELPER_TEST_DIR/proxy-helper-tests"
 "$ENTOMA_HELPER_TEST_DIR/proxy-helper-tests"

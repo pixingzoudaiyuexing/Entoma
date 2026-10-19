@@ -26,18 +26,17 @@ private final class ProxyHelperSession: NSObject, ProxyHelperProtocol {
 
 @available(macOS 13.0, *)
 private final class ProxyHelperListener: NSObject, NSXPCListenerDelegate {
-  let team: String
+  let requirement: String
   let coordinator: ProxyHelperCoordinator
-  init(team: String, coordinator: ProxyHelperCoordinator) { self.team = team; self.coordinator = coordinator }
+  init(requirement: String, coordinator: ProxyHelperCoordinator) { self.requirement = requirement; self.coordinator = coordinator }
 
   func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
     // Scope global network writes to the logged-in GUI user. UID/path/PID alone
-    // are insufficient: the system additionally authenticates every XPC message
-    // against the exact Apple-trusted Developer ID identity below.
+    // are insufficient: XPC additionally authenticates every message against
+    // the CodeDirectory identity approved during administrator installation.
     var uid: uid_t = 0
     guard let name = SCDynamicStoreCopyConsoleUser(nil, &uid, nil) as String?,
-          name != "loginwindow", uid > 0, connection.effectiveUserIdentifier == uid,
-          let requirement = try? ProxyHelperIdentity.requirement(identifier: ProxyHelperIdentity.appIdentifier, team: team) else {
+          name != "loginwindow", uid > 0, connection.effectiveUserIdentifier == uid else {
       return false
     }
     connection.setCodeSigningRequirement(requirement)
@@ -54,9 +53,21 @@ private final class ProxyHelperListener: NSObject, NSXPCListenerDelegate {
 @main
 private enum ProxyHelperMain {
   static func main() {
-    guard #available(macOS 13.0, *), geteuid() == 0, CommandLine.arguments.count == 1 else { exit(78) }
+    guard #available(macOS 13.0, *), geteuid() == 0 else { exit(78) }
     do {
-      let team = try ProxyHelperIdentity.ownTeam(expectedIdentifier: ProxyHelperIdentity.helperIdentifier)
+      if CommandLine.arguments.count > 1 {
+        let args = Array(CommandLine.arguments.dropFirst())
+        guard (args.count == 3 && args[0] == "--install") || (args.count == 1 && args[0] == "--uninstall") else { exit(64) }
+        try LaunchdProxyHelperBackend(app: args[0] == "--install" ? URL(fileURLWithPath: args[1]) : nil,
+                                      approvedHashes: args.count == 3 ? args[2].components(separatedBy: ",") : []).run()
+        return
+      }
+      guard CommandLine.arguments.count == 1 else { exit(64) }
+      let receipt = try ProxyHelperReceipt.installed()
+      let executable = URL(fileURLWithPath: ProxyHelperFiles.binaryPath)
+      guard try ProxyHelperIdentity.hashes(at: executable, identifier: ProxyHelperIdentity.helperIdentifier) == receipt.helperHashes else {
+        throw ProxyHelperFailure.identityRejected
+      }
       let journal = try SecureProxyJournal.production()
       let owner = OwnedNetworkSettings(backend: RootNetworkSettingsBackend(), journal: journal)
       let coordinator = ProxyHelperCoordinator(owner: owner, consoleUser: {
@@ -66,19 +77,22 @@ private enum ProxyHelperMain {
         return uid
       })
       try coordinator.recoverAtStartup()
-      let delegate = ProxyHelperListener(team: team, coordinator: coordinator)
+      let delegate = ProxyHelperListener(requirement: try receipt.appRequirement, coordinator: coordinator)
       let listener = NSXPCListener(machServiceName: ProxyHelperIdentity.serviceName)
       // macOS 13's public listener API rejects an invalid signed peer before
       // creating a session or consulting our delegate. The accepted connection
       // additionally checks each incoming message against the same requirement.
-      listener.setConnectionCodeSigningRequirement(try ProxyHelperIdentity.requirement(
-        identifier: ProxyHelperIdentity.appIdentifier, team: team))
+      listener.setConnectionCodeSigningRequirement(try receipt.appRequirement)
       listener.delegate = delegate
       signal(SIGTERM, SIG_IGN)
       let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
       termination.setEventHandler { coordinator.shutdown { restored in exit(restored ? 0 : 78) } }
       termination.resume()
       listener.resume()
+      let files = try ProxyHelperFiles.production(create: false)
+      guard let installed = try files.read("receipt.plist", limit: 65536) else { throw ProxyHelperFailure.missing }
+      let ready = try PropertyListSerialization.data(fromPropertyList: ["pid": getpid(), "receipt": installed], format: .binary, options: 0)
+      try files.write("ready.plist", bytes: ready)
       withExtendedLifetime((delegate, listener, termination)) { dispatchMain() }
     } catch {
       // No filesystem paths, network snapshots or credentials are logged.

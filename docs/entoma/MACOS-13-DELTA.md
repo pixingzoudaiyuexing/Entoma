@@ -72,3 +72,11 @@ once the code/artifact checks pass. It does not close:
 Both PRs remain Draft. No main merge, Release, production deployment, unsigned
 privileged installation, authdb or sudoers change is authorized here. Older
 reports remain historical evidence and are not rewritten as macOS13 acceptance.
+
+## Subsequent service-installation decision
+
+This document preserves PR #9's minimum-version review scope. A later Owner
+decision replaces the Developer ID/SMAppService installation gate in a separate
+launchd-helper branch; see MACOS-LAUNCHD-DELTA.md. macOS13.0 remains unchanged.
+Local ad-hoc testing is permitted there; its privileged installation still needs
+Owner approval and its code needs independent review.

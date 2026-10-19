@@ -126,3 +126,7 @@ delta-review gates. No one-click coordinator or Helper permission policy changes
 The references' GPL/AGPL obligations were considered before comparison. No
 proprietary samples, source implementation or resources were copied. Entoma's
 own GPLv3 corresponding-source/signing/publication checklist remains required.
+
+## 后续 launchd 安装决定（2026-10-17）
+
+Owner已批准以管理员一次安装、launchd后台服务替代SMAppService强制Developer ID门禁；本地开发允许有效ad-hoc签名。以上#8/#9与最低版本记录保留为其候选上下文。新独立分支/PR的实际安装、XPC身份pin、升级卸载与待验收范围以[后台服务文档](MACOS-PROXY-HELPER.md)和[新Delta](MACOS-LAUNCHD-DELTA.md)为准。一键协调器保持复用；未获Owner许可不实际安装服务，未正式审核不合并。
