@@ -17,3 +17,17 @@ Owner批准一次管理员安装launchd服务，允许本地ad-hoc签名；移�
 测试/构建/实际设备结果与精确SHA随PR证据交付。未获Owner许可前不安装本机服务；未获Formal Independent Delta Review允许前不合并。无Release/生产部署。
 
 本地ad-hoc Flutter的dylib Team-ID不匹配已实际复现；仅本地GUI明确使用disable-library-validation，保留hardened runtime且无debug/DYLD环境放行。root Helper始终禁止此例外。审核须覆盖这一被代码pin固定的本地GUI信任边界；付费证书仍不是开发前置。对应真实dlopen失败→成功和root身份拒绝回归已加入。
+
+## Device-discovered directory mode repair (2026-10-19)
+
+The first real administrator install started the daemon but inherited umask077,
+leaving EntomaProxy0700. The GUI could not read its public identity receipt and
+reported updateRequired. After validating each opened directory's owner, mode,
+ACL and type, the installer explicitly sets0755 on its fixed identity leaf (also
+repairing a prior0700 leaf in place) and any parent it just created. Existing
+system parents, network Journal directories and lock inodes are preserved. A
+real-directory regression fails before this change and passes after it, covering
+umask077, private existing-directory repair/inode retention, public receipt0644,
+unsafe writable-target rejection and Journal0700 isolation. Actual GUI/XPC and
+network acceptance still requires the repaired installer to run on the device;
+this code/test fix is not proof of device acceptance or merge authorization.

@@ -49,24 +49,51 @@ final class ProxyHelperFiles {
       guard acl_get_entry(acl, Int32(ACL_FIRST_ENTRY.rawValue), &entry) != 0 else { throw ProxyHelperFailure.identityRejected }
     } else if errno != ENOENT { throw ProxyHelperFailure.identityRejected }
   }
+  private static func openDirectory(parent: Int32, component: String, owner: uid_t,
+                                    create: Bool, publish: Bool) throws -> Int32 {
+    var created = false
+    if create {
+      if mkdirat(parent, component, 0o755) == 0 { created = true }
+      else if errno != EEXIST { throw ProxyHelperFailure.unavailable }
+    }
+    let next = openat(parent, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    guard next >= 0 else { throw errno == ENOENT ? ProxyHelperFailure.missing : .identityRejected }
+    do {
+      try safe(next, owner: owner, directory: true)
+      // The administrator launcher deliberately uses umask077. Publish only
+      // this root-validated identity directory (or a newly created parent) with
+      // traversal/read access for the GUI; group/other write remains forbidden.
+      // Repair an earlier0700 leaf in place. Never widen the separate private
+      // network journal or alter pre-existing system parent permissions.
+      if create && (publish || created) {
+        guard fchmod(next, 0o755) == 0, fsync(next) == 0 else { throw ProxyHelperFailure.unavailable }
+      }
+      return next
+    } catch { close(next); throw error }
+  }
+
   static func production(create: Bool, launchDirectory: Bool = false) throws -> ProxyHelperFiles {
     if create && geteuid() != 0 { throw ProxyHelperFailure.identityRejected }
     var fd = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
     guard fd >= 0 else { throw ProxyHelperFailure.unavailable }
     do {
       for component in (launchDirectory ? ["Library", "LaunchDaemons"] : ["Library", "PrivilegedHelperTools", "EntomaProxy"]) {
-        if create && component != "Library" {
-          guard mkdirat(fd, component, 0o755) == 0 || errno == EEXIST else { throw ProxyHelperFailure.unavailable }
-        }
-        let next = openat(fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard next >= 0 else { throw errno == ENOENT ? ProxyHelperFailure.missing : .identityRejected }
-        do { try safe(next, owner: 0, directory: true) } catch { close(next); throw error }
+        let next = try openDirectory(parent: fd, component: component, owner: 0,
+          create: create && component != "Library", publish: create && component == "EntomaProxy")
         close(fd); fd = next
       }
       return ProxyHelperFiles(fd: fd, owner: 0)
     } catch { close(fd); throw error }
   }
   #if ENTOMA_HELPER_TESTING
+  static func fixtureSharedDirectory(_ parent: URL, create: Bool) throws -> ProxyHelperFiles {
+    let parentFD = open(parent.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    guard parentFD >= 0 else { throw ProxyHelperFailure.unavailable }
+    defer { close(parentFD) }
+    let fd = try openDirectory(parent: parentFD, component: "EntomaProxy", owner: geteuid(),
+                               create: create, publish: create)
+    return ProxyHelperFiles(fd: fd, owner: geteuid())
+  }
   static func fixture(_ url: URL) throws -> ProxyHelperFiles {
     let fd = open(url.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
     guard fd >= 0 else { throw ProxyHelperFailure.unavailable }

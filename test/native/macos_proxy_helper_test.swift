@@ -304,6 +304,39 @@ private enum ProxyHelperTests {
           if failure == "recover" { try expect(backend.events.last == "rollback", "restart previous recovery agent") }
         }
       }),
+      ("installer umask cannot hide public receipt; safe repair preserves inode and private journal", {
+        try withDirectory { parent in
+          let previousMask = umask(0o077)
+          defer { umask(previousMask) }
+          let files = try ProxyHelperFiles.fixtureSharedDirectory(parent, create: true)
+          let child = parent.appendingPathComponent("EntomaProxy")
+          var state = stat()
+          try expect(lstat(child.path, &state) == 0 && state.st_mode & 0o777 == 0o755,
+                     "administrator umask must not make receipt directory inaccessible")
+          let inode = state.st_ino
+          try files.write("receipt.plist", bytes: Data("public identity".utf8))
+          try expect(lstat(child.appendingPathComponent("receipt.plist").path, &state) == 0 && state.st_mode & 0o777 == 0o644,
+                     "receipt remains public read, owner write only")
+          try expect(chmod(child.path, 0o700) == 0, "reproduce old installed directory")
+          let repaired = try ProxyHelperFiles.fixtureSharedDirectory(parent, create: true)
+          try expect(lstat(child.path, &state) == 0 && state.st_mode & 0o777 == 0o755 && state.st_ino == inode,
+                     "repair existing root directory without replacing it")
+          try expect(repaired.read("receipt.plist") == Data("public identity".utf8), "repair retains receipt")
+          let reader = try ProxyHelperFiles.fixtureSharedDirectory(parent, create: false)
+          try expect(reader.read("receipt.plist") == Data("public identity".utf8), "no-install status can read")
+          try expect(chmod(child.path, 0o777) == 0, "unsafe destination fixture")
+          try fails { _ = try ProxyHelperFiles.fixtureSharedDirectory(parent, create: true) }
+          try expect(lstat(child.path, &state) == 0 && state.st_mode & 0o777 == 0o777, "unsafe destination never silently repaired")
+          chmod(child.path, 0o755)
+          let journalDirectory = parent.appendingPathComponent("private-journal")
+          try FileManager.default.createDirectory(at: journalDirectory, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+          let journal = try SecureProxyJournal.fixture(directory: journalDirectory)
+          try journal.save([:])
+          try expect(lstat(journalDirectory.path, &state) == 0 && state.st_mode & 0o777 == 0o700,
+                     "network journal remains private")
+        }
+      }),
       ("real installation files reject symlink hardlink FIFO loose mode and overlapping installers", {
         try withDirectory { directory in
           let files = try ProxyHelperFiles.fixture(directory)
